@@ -1,0 +1,59 @@
+{
+  "id": "neuroverse-governance",
+  "name": "NeuroVerse Governance",
+  "version": "1.0.0",
+  "description": "Governance plugin for OpenClaw. Structured condition engine. Deterministic verdicts: ALLOW / PAUSE / BLOCK. Audit log. No AI in enforcement.",
+  "author": "NeuroVerseOS",
+  "homepage": "https://www.neuroverseos.com",
+  "kind": "lifecycle",
+  "tags": ["governance", "guardrails", "policy", "safety"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "worldPath": {
+        "type": "string",
+        "description": "Path to world.json governance file (default: .neuroverse/world.json)"
+      },
+      "enforcement": {
+        "type": "string",
+        "enum": ["standard", "strict", "permissive"],
+        "description": "Default enforcement level"
+      },
+      "observeFirst": {
+        "type": "boolean",
+        "description": "Start in observe mode (ALLOW all, record patterns) before enforcing"
+      },
+      "driftTracking": {
+        "type": "boolean",
+        "description": "Enable background drift monitoring"
+      },
+      "autoProposals": {
+        "type": "boolean",
+        "description": "Allow governance engine to propose world amendments"
+      },
+      "verbose": {
+        "type": "boolean",
+        "description": "Log all verdicts including ALLOW. Default: false (only BLOCK/PAUSE print)"
+      },
+      "autoAllow": {
+        "type": "boolean",
+        "description": "Auto-approve all PAUSE decisions. For CI/headless environments. Default: false"
+      },
+      "environment": {
+        "type": "string",
+        "description": "Override environment detection (development, production, staging)"
+      }
+    }
+  },
+  "uiHints": {
+    "worldPath": { "label": "World File Path", "placeholder": ".neuroverse/world.json" },
+    "enforcement": { "label": "Enforcement Level" },
+    "observeFirst": { "label": "Observe First Mode" },
+    "driftTracking": { "label": "Drift Tracking" },
+    "autoProposals": { "label": "Auto Proposals" },
+    "verbose": { "label": "Verbose Logging" },
+    "autoAllow": { "label": "Auto-Allow Pauses" },
+    "environment": { "label": "Environment Override", "placeholder": "development" }
+  }
+}

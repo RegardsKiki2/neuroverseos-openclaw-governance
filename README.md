@@ -1,4 +1,4 @@
-# NeuroVerse Governance — OpenClaw Plugin
+# NeuroVerseOS Governance — OpenClaw Plugin
 
 Deterministic governance runtime for OpenClaw agents.
 
@@ -9,7 +9,7 @@ No AI calls during enforcement. No network requests. Same world + same event = s
 ## Install
 
 ```bash
-openclaw plugins install @neuroverse/governance
+openclaw plugins install neuroverseos-governance
 ```
 
 Or for local development:
@@ -24,7 +24,7 @@ The plugin must be installed **where your OpenClaw Gateway is running** — not 
 
 ```bash
 ssh your-vps
-openclaw plugins install @neuroverse/governance
+openclaw plugins install neuroverseos-governance
 ```
 
 ### Docker
@@ -35,13 +35,13 @@ For Docker-based deployments, add the plugin to your image or mount it at runtim
 
 ```dockerfile
 FROM openclaw/gateway:latest
-RUN openclaw plugins install @neuroverse/governance
+RUN openclaw plugins install neuroverseos-governance
 ```
 
 **Option B — Mount as a volume:**
 
 ```bash
-docker run -v /path/to/neuroverse-governance:/app/plugins/neuroverse-governance \
+docker run -v /path/to/neuroverseos-governance:/app/plugins/neuroverseos-governance \
   openclaw/gateway:latest
 ```
 
@@ -58,7 +58,7 @@ services:
   openclaw:
     image: openclaw/gateway:latest
     volumes:
-      - ./plugins/neuroverse-governance:/app/plugins/neuroverse-governance
+      - ./plugins/neuroverseos-governance:/app/plugins/neuroverseos-governance
       - ./.neuroverse:/app/.neuroverse  # persist audit logs and world.json
 ```
 

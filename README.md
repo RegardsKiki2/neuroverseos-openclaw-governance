@@ -18,6 +18,52 @@ Or for local development:
 openclaw plugins install -l .
 ```
 
+### VPS / Cloud Server
+
+The plugin must be installed **where your OpenClaw Gateway is running** — not on your local machine. If OpenClaw runs on a VPS, install the plugin there:
+
+```bash
+ssh your-vps
+openclaw plugins install @neuroverse/governance
+```
+
+### Docker
+
+For Docker-based deployments, add the plugin to your image or mount it at runtime:
+
+**Option A — Install in your Dockerfile:**
+
+```dockerfile
+FROM openclaw/gateway:latest
+RUN openclaw plugins install @neuroverse/governance
+```
+
+**Option B — Mount as a volume:**
+
+```bash
+docker run -v /path/to/neuroverse-governance:/app/plugins/neuroverse-governance \
+  openclaw/gateway:latest
+```
+
+After either method, restart OpenClaw so the plugin loads:
+
+```bash
+docker restart openclaw-gateway
+```
+
+### Docker Compose
+
+```yaml
+services:
+  openclaw:
+    image: openclaw/gateway:latest
+    volumes:
+      - ./plugins/neuroverse-governance:/app/plugins/neuroverse-governance
+      - ./.neuroverse:/app/.neuroverse  # persist audit logs and world.json
+```
+
+**Important:** The `.neuroverse/` directory contains your `world.json`, audit logs, and proposals. Mount it as a volume so governance state persists across container restarts.
+
 ## Quick Start
 
 Inside your OpenClaw workspace:

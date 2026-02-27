@@ -23,7 +23,7 @@ function getFieldValue(event: ToolCallEvent, field: string): unknown {
     const key = field.slice(5);
     return event.args?.[key];
   }
-  return (event as Record<string, unknown>)[field];
+  return (event as unknown as Record<string, unknown>)[field];
 }
 
 /**

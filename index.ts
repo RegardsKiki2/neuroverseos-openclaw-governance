@@ -13,7 +13,7 @@
  * Audit: Every verdict logged to .neuroverse/audit.jsonl.
  *
  * Install:
- *   openclaw plugins install @neuroverse/governance
+ *   openclaw plugins install neuroverseos-governance
  *
  * Commands:
  *   /world bootstrap    — Generate world.json from your .md files

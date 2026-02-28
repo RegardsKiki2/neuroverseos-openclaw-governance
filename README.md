@@ -6,6 +6,12 @@ It compiles your `.md` agent files into a structured World File and enforces inv
 
 No AI calls during enforcement. No network requests. Same world + same event = same verdict.
 
+## Install
+
+```bash
+npm install @neuroverse/governance
+```
+
 ## What NeuroVerseOS Does
 
 NeuroVerseOS introduces structured, enforceable governance to agent systems.
@@ -49,7 +55,19 @@ No world change activates silently.
 ## Installation
 
 ```bash
-openclaw plugins install @neuroverseos/governance
+npm install @neuroverse/governance
+```
+
+Then in code:
+
+```js
+const { GovernanceEngine } = require('@neuroverse/governance');
+```
+
+Or as an OpenClaw plugin:
+
+```bash
+openclaw plugins install @neuroverse/governance
 ```
 
 For local development:
@@ -57,8 +75,6 @@ For local development:
 ```bash
 openclaw plugins install -l .
 ```
-
-If OpenClaw runs on a VPS, install the plugin on that server.
 
 ## Storage Model
 

@@ -31,7 +31,7 @@ import { bootstrapWorldFromMarkdown, checkMdDrift } from './world-bootstrap';
 import { GovernanceEngine } from './governance-engine';
 import { DriftMonitor } from './drift-monitor';
 import { AuditLogger } from './audit-logger';
-import type { ToolCallEvent, GovernanceVerdict } from './types';
+import type { ToolCallEvent, GovernanceVerdict, GovernanceAlert } from './types';
 
 // ────────────────────────────────────────────────────────────────────────
 // Terminal Prompt — Interactive pause resolution (spec §6)
@@ -241,6 +241,9 @@ export default function register(api: any) {
     observeOnly: config.observeFirst ?? false,
   });
 
+  // Set workspace dir for runtime md drift detection (spec §8)
+  engine.setWorkspaceDir(workspaceDir);
+
   const audit = new AuditLogger(auditPath);
 
   let monitor: DriftMonitor | null = null;
@@ -276,6 +279,20 @@ export default function register(api: any) {
 
     // 4. Track in drift monitor
     monitor?.recordAction(event.toolName, verdict.status, verdict.ruleId ?? undefined);
+
+    // 4.5 Surface proactive alerts (spec §8)
+    if (verdict.alerts && verdict.alerts.length > 0) {
+      for (const alert of verdict.alerts) {
+        const prefix = alert.level === 'critical' ? '!!!'
+          : alert.level === 'warning' ? '!'
+          : 'i';
+        api.logger.warn(`[governance] [${prefix}] ${alert.message}`);
+        if (alert.details) {
+          api.logger.warn(`             ${alert.details}`);
+        }
+        api.logger.warn(`             → ${alert.action}`);
+      }
+    }
 
     // ── BLOCK ──────────────────────────────────────────────
     if (verdict.status === 'BLOCK') {
@@ -395,8 +412,9 @@ export default function register(api: any) {
       process.stderr.write(`[NeuroVerse] Keeping current constitution.\n\n`);
     }
 
-    // Always clear session allowlist on reset
+    // Always clear session allowlist and alert history on reset
     allowlist.clear();
+    engine.clearAlertHistory();
   });
 
   // ── Background Drift Service ───────────────────────────────────
@@ -828,10 +846,15 @@ export default function register(api: any) {
   api.logger.info('[NeuroVerse] Governance plugin loaded (v1.0.0)');
   if (existsSync(worldPath)) {
     engine.loadWorld();
+    engine.loadMeta();
     const status = engine.getStatus();
     api.logger.info(
       `[NeuroVerse] World loaded: ${status.invariantCount} invariants, ${status.guardCount} guards, ${status.ruleCount} rules, ${status.roleCount} roles`,
     );
+    const meta = engine.getMetaRecord();
+    if (meta) {
+      api.logger.info(`[NeuroVerse] Integrity tracking active (v${meta.version}, hash: ${meta.hash.slice(0, 12)}...)`);
+    }
   } else {
     api.logger.info('[NeuroVerse] No world file found. Run /world bootstrap to create one.');
   }

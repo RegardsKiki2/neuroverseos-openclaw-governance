@@ -115,6 +115,25 @@ export interface WorldMetadata {
 }
 
 // ────────────────────────────────────────────────────────────────────────
+// Governance Alerts — Proactive drift detection (spec §8–9)
+// ────────────────────────────────────────────────────────────────────────
+
+export type AlertCode =
+  | 'TAMPERED'
+  | 'WORLD_MISSING'
+  | 'WORLD_CORRUPTED'
+  | 'SOURCE_DRIFT'
+  | 'PENDING_UNAPPROVED';
+
+export interface GovernanceAlert {
+  level: 'critical' | 'warning' | 'info';
+  code: AlertCode;
+  message: string;
+  action: string;
+  details?: string;
+}
+
+// ────────────────────────────────────────────────────────────────────────
 // Verdict
 // ────────────────────────────────────────────────────────────────────────
 
@@ -124,6 +143,8 @@ export interface GovernanceVerdict {
   ruleId: string | null;
   guard: string | null;
   evidence: string | null;
+  /** Runtime integrity and drift alerts. Separate from enforcement. */
+  alerts?: GovernanceAlert[];
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -146,6 +167,63 @@ export interface AuditDecisionEntry {
   type: 'decision';
   decision: 'allow-once' | 'allow-always' | 'deny';
   decidedAt: number;
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// World Integrity (spec §11)
+// ────────────────────────────────────────────────────────────────────────
+
+export interface ActiveWorldRecord {
+  world: GovernanceWorld;
+  hash: string;
+  activatedAt: number;
+  activatedBy: 'human' | 'migration';
+  version: number;
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// World Diff (spec §6)
+// ────────────────────────────────────────────────────────────────────────
+
+export interface WorldDiffSection<T> {
+  added: T[];
+  removed: T[];
+  modified: { before: T; after: T; changes: string[] }[];
+  unchanged: number;
+}
+
+export interface WorldDiff {
+  invariants: WorldDiffSection<Invariant>;
+  guards: WorldDiffSection<Guard>;
+  rules: WorldDiffSection<Rule>;
+  roles: WorldDiffSection<Role>;
+  kernel: {
+    changed: boolean;
+    before: Kernel | null;
+    after: Kernel;
+  };
+  severity: 'none' | 'low' | 'high' | 'critical';
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// World Audit (spec §13)
+// ────────────────────────────────────────────────────────────────────────
+
+export interface WorldAuditEntry {
+  ts: number;
+  type: 'world_event';
+  event:
+    | 'bootstrap_proposed'
+    | 'approved'
+    | 'rejected'
+    | 'rollback_proposed'
+    | 'tampering_detected'
+    | 'restored'
+    | 'source_drift_detected';
+  severity: 'none' | 'low' | 'high' | 'critical';
+  diff_summary: string;
+  version_before: number;
+  version_after: number;
 }
 
 // ────────────────────────────────────────────────────────────────────────

@@ -217,11 +217,13 @@ export default function register(api: any) {
   const roleMap = new Map<string, string>();
   const environment = config.environment ?? process.env.NODE_ENV;
 
-  // Workspace content: where .md files live (for bootstrap & drift detection)
-  const workspaceDir = api.resolvePath('.');
-
   // Storage root: where .neuroverse/ persistent data lives
   const storageRoot = getStorageRoot();
+
+  // Workspace content: where .md files live (for bootstrap & drift detection)
+  // OpenClaw workspace is at <dataRoot>/.openclaw/workspace — NOT the container CWD.
+  // api.resolvePath('.') returns the container root (e.g. /data), which has no .md files.
+  const workspaceDir = resolve(storageRoot, '.openclaw', 'workspace');
   const worldDir = resolve(storageRoot, '.neuroverse');
   const worldPath = config.worldPath
     ? resolve(storageRoot, config.worldPath)

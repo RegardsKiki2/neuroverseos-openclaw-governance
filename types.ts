@@ -144,6 +144,8 @@ export interface GovernanceVerdict {
   ruleId: string | null;
   guard: string | null;
   evidence: string | null;
+  /** Severity classification for UX differentiation (governance > critical > high > low) */
+  severity?: 'low' | 'high' | 'critical' | 'governance';
   /** Runtime integrity and drift alerts. Separate from enforcement. */
   alerts?: GovernanceAlert[];
 }
@@ -160,6 +162,10 @@ export interface AuditEntry {
   status: 'ALLOW' | 'PAUSE' | 'BLOCK';
   ruleId: string | null;
   evidence?: string | null;
+  /** Agent identity that triggered this event (provenance tracking) */
+  agentId?: string;
+  /** Severity classification of the verdict */
+  severity?: 'low' | 'high' | 'critical' | 'governance';
 }
 
 export interface AuditDecisionEntry {

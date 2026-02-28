@@ -4,7 +4,7 @@
  * Every verdict logged. Every PAUSE paired with a decision.
  * Every entry references a ruleId. /world status reads this for drift metrics.
  *
- * Format: .neuroverse/audit.jsonl — one JSON object per line.
+ * Format: .neuroverseos/audit.jsonl — one JSON object per line.
  */
 
 import { appendFileSync, existsSync, readFileSync, mkdirSync } from 'fs';

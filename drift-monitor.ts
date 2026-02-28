@@ -8,7 +8,7 @@
  *   - Rule friction (which rules fire most often?)
  *
  * Can also read from audit.jsonl for historical analysis.
- * Stored in .neuroverse/state.json — separate from MEMORY.md.
+ * Stored in .neuroverseos/state.json — separate from MEMORY.md.
  */
 
 import { writeFileSync, readFileSync, existsSync } from 'fs';

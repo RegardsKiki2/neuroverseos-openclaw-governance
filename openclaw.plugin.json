@@ -13,7 +13,7 @@
     "properties": {
       "worldPath": {
         "type": "string",
-        "description": "Path to world.json governance file (default: .neuroverse/world.json)"
+        "description": "Path to world.json governance file (default: .neuroverseos/world.json)"
       },
       "enforcement": {
         "type": "string",
@@ -47,7 +47,7 @@
     }
   },
   "uiHints": {
-    "worldPath": { "label": "World File Path", "placeholder": ".neuroverse/world.json" },
+    "worldPath": { "label": "World File Path", "placeholder": ".neuroverseos/world.json" },
     "enforcement": { "label": "Enforcement Level" },
     "observeFirst": { "label": "Observe First Mode" },
     "driftTracking": { "label": "Drift Tracking" },

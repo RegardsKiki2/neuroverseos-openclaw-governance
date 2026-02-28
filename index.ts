@@ -1,5 +1,5 @@
 /**
- * NeuroVerse Governance Plugin for OpenClaw
+ * NeuroVerseOS Governance Plugin for OpenClaw
  *
  * A governance layer that intercepts tool calls and enforces
  * ALLOW / PAUSE / BLOCK verdicts against structured world rules.
@@ -10,7 +10,7 @@
  * Logging: Quiet by default. Only BLOCK and PAUSE print to terminal.
  * Set "verbose": true to see all verdicts including ALLOW.
  *
- * Audit: Every verdict logged to .neuroverse/audit.jsonl.
+ * Audit: Every verdict logged to .neuroverseos/audit.jsonl.
  *
  * Install:
  *   openclaw plugins install neuroverseos-governance
@@ -257,7 +257,7 @@ export default function register(api: any) {
   // OpenClaw workspace is at <dataRoot>/.openclaw/workspace — NOT the container CWD.
   // api.resolvePath('.') returns the container root (e.g. /data), which has no .md files.
   const workspaceDir = resolve(storageRoot, '.openclaw', 'workspace');
-  const worldDir = resolve(storageRoot, '.neuroverse');
+  const worldDir = resolve(storageRoot, '.neuroverseos');
   const worldPath = config.worldPath
     ? resolve(storageRoot, config.worldPath)
     : join(worldDir, 'world.json');
@@ -439,7 +439,7 @@ export default function register(api: any) {
     if (drift.added.length > 0) changedSummary.push(`new: ${drift.added.join(', ')}`);
     if (drift.removed.length > 0) changedSummary.push(`removed: ${drift.removed.join(', ')}`);
 
-    process.stderr.write(`\n[NeuroVerse] Markdown files changed since last bootstrap.\n`);
+    process.stderr.write(`\n[NeuroVerseOS] Markdown files changed since last bootstrap.\n`);
     process.stderr.write(`  ${changedSummary.join('; ')}\n`);
 
     // Prompt: regenerate?
@@ -456,12 +456,12 @@ export default function register(api: any) {
         const newWorld = bootstrapWorldFromMarkdown(mdFiles);
         engine.setWorld(newWorld);
         engine.saveWorld();
-        process.stderr.write(`[NeuroVerse] Constitution regenerated. ${newWorld.invariants.length} invariants, ${newWorld.guards.length} guards, ${newWorld.rules.length} rules.\n\n`);
+        process.stderr.write(`[NeuroVerseOS] Constitution regenerated. ${newWorld.invariants.length} invariants, ${newWorld.guards.length} guards, ${newWorld.rules.length} rules.\n\n`);
       } else {
-        process.stderr.write(`[NeuroVerse] No .md files found. Keeping current constitution.\n\n`);
+        process.stderr.write(`[NeuroVerseOS] No .md files found. Keeping current constitution.\n\n`);
       }
     } else {
-      process.stderr.write(`[NeuroVerse] Keeping current constitution.\n\n`);
+      process.stderr.write(`[NeuroVerseOS] Keeping current constitution.\n\n`);
     }
 
     // Always clear session allowlist and alert history on reset
@@ -475,11 +475,11 @@ export default function register(api: any) {
       id: 'neuroverse-drift-monitor',
       start: () => {
         monitor!.start();
-        api.logger.info('[NeuroVerse] Drift monitor started');
+        api.logger.info('[NeuroVerseOS] Drift monitor started');
       },
       stop: () => {
         monitor!.stop();
-        api.logger.info('[NeuroVerse] Drift monitor stopped');
+        api.logger.info('[NeuroVerseOS] Drift monitor stopped');
       },
     });
   }
@@ -638,7 +638,7 @@ export default function register(api: any) {
         .command('bootstrap')
         .description('Generate world.json from your .md files')
         .action(async () => {
-          logger.info('[NeuroVerse] Reading .md files from workspace...');
+          logger.info('[NeuroVerseOS] Reading .md files from workspace...');
           const mdFiles = readMdFiles(workspaceDir);
 
           for (const file of Object.keys(mdFiles)) {
@@ -651,7 +651,7 @@ export default function register(api: any) {
             return;
           }
 
-          logger.info(`[NeuroVerse] Bootstrapping world from ${Object.keys(mdFiles).length} files...`);
+          logger.info(`[NeuroVerseOS] Bootstrapping world from ${Object.keys(mdFiles).length} files...`);
 
           const world = bootstrapWorldFromMarkdown(mdFiles);
           engine.setWorld(world);
@@ -671,7 +671,7 @@ export default function register(api: any) {
         .description('Show governance status')
         .action(() => {
           if (!existsSync(worldPath)) {
-            logger.info('[NeuroVerse] No world file found. Run /world bootstrap first.');
+            logger.info('[NeuroVerseOS] No world file found. Run /world bootstrap first.');
             return;
           }
           const stats = engine.getStatus();
@@ -688,12 +688,12 @@ export default function register(api: any) {
         .description('Display the full constitution')
         .action(() => {
           if (!existsSync(worldPath)) {
-            logger.info('[NeuroVerse] No world file found. Run /world bootstrap first.');
+            logger.info('[NeuroVerseOS] No world file found. Run /world bootstrap first.');
             return;
           }
           const world = engine.getWorld();
           if (!world) {
-            logger.info('[NeuroVerse] World file could not be loaded.');
+            logger.info('[NeuroVerseOS] World file could not be loaded.');
             return;
           }
 
@@ -881,7 +881,7 @@ export default function register(api: any) {
 
       // ── /world bootstrap ──
       if (subcommand === 'bootstrap') {
-        const lines: string[] = ['[NeuroVerse] Reading .md files from workspace...'];
+        const lines: string[] = ['[NeuroVerseOS] Reading .md files from workspace...'];
         const mdFiles = readMdFiles(workspaceDir);
 
         for (const file of Object.keys(mdFiles)) {
@@ -894,7 +894,7 @@ export default function register(api: any) {
           return { text: lines.join('\n') };
         }
 
-        lines.push(`\n[NeuroVerse] Bootstrapping world from ${Object.keys(mdFiles).length} files...`);
+        lines.push(`\n[NeuroVerseOS] Bootstrapping world from ${Object.keys(mdFiles).length} files...`);
 
         const world = bootstrapWorldFromMarkdown(mdFiles);
         engine.setWorld(world);
@@ -914,7 +914,7 @@ export default function register(api: any) {
       // ── /world status ──
       if (subcommand === 'status') {
         if (!existsSync(worldPath)) {
-          return { text: '[NeuroVerse] No world file found. Run /world bootstrap first.' };
+          return { text: '[NeuroVerseOS] No world file found. Run /world bootstrap first.' };
         }
 
         const stats = engine.getStatus();
@@ -982,12 +982,12 @@ export default function register(api: any) {
       // ── /world laws ──
       if (subcommand === 'laws') {
         if (!existsSync(worldPath)) {
-          return { text: '[NeuroVerse] No world file found. Run /world bootstrap first.' };
+          return { text: '[NeuroVerseOS] No world file found. Run /world bootstrap first.' };
         }
 
         const world = engine.getWorld();
         if (!world) {
-          return { text: '[NeuroVerse] World file could not be loaded.' };
+          return { text: '[NeuroVerseOS] World file could not be loaded.' };
         }
 
         const lines: string[] = [
@@ -1091,17 +1091,17 @@ export default function register(api: any) {
         // Validate roleId exists in the world
         const world = engine.getWorld();
         if (!world) {
-          return { text: '[NeuroVerse] No world loaded. Run /world bootstrap first.' };
+          return { text: '[NeuroVerseOS] No world loaded. Run /world bootstrap first.' };
         }
         const role = world.roles.find(r => r.id === roleId);
         if (!role) {
           const available = world.roles.map(r => `\`${r.id}\` (${r.name})`).join(', ');
-          return { text: `[NeuroVerse] Role "${roleId}" not found.\n\nAvailable roles: ${available}` };
+          return { text: `[NeuroVerseOS] Role "${roleId}" not found.\n\nAvailable roles: ${available}` };
         }
 
         const meta = engine.getMetaRecord();
         if (!meta) {
-          return { text: '[NeuroVerse] No meta record. Run /world bootstrap first.' };
+          return { text: '[NeuroVerseOS] No meta record. Run /world bootstrap first.' };
         }
 
         // Classify severity and apply
@@ -1118,7 +1118,7 @@ export default function register(api: any) {
         };
 
         const lines: string[] = [
-          `[NeuroVerse] Role binding updated.`,
+          `[NeuroVerseOS] Role binding updated.`,
           `  Agent:    ${agentId}`,
           `  Role:     ${role.id} (${role.name})`,
           `  Severity: ${severityLabel[severity] ?? severity}`,
@@ -1144,7 +1144,7 @@ export default function register(api: any) {
 
         const removed = engine.removeRoleBinding(agentId);
         if (!removed) {
-          return { text: `[NeuroVerse] No binding found for agent "${agentId}".` };
+          return { text: `[NeuroVerseOS] No binding found for agent "${agentId}".` };
         }
 
         engine.saveMeta();
@@ -1152,7 +1152,7 @@ export default function register(api: any) {
 
         return {
           text: [
-            `[NeuroVerse] Role binding removed.`,
+            `[NeuroVerseOS] Role binding removed.`,
             `  Agent: ${agentId}`,
             `  Status: unbound (deny-by-default — role constraints will not apply)`,
           ].join('\n'),
@@ -1165,7 +1165,7 @@ export default function register(api: any) {
         if (bindings.length === 0) {
           return {
             text: [
-              '[NeuroVerse] No role bindings configured.',
+              '[NeuroVerseOS] No role bindings configured.',
               '',
               'Agents are unbound. Role constraints are inert.',
               'Run `/world bind <agentId> <roleId>` to assign roles.',
@@ -1195,12 +1195,12 @@ export default function register(api: any) {
       // ── /world propose ──
       if (subcommand === 'propose') {
         if (!monitor) {
-          return { text: '[NeuroVerse] Drift tracking is disabled. Enable it to generate proposals.' };
+          return { text: '[NeuroVerseOS] Drift tracking is disabled. Enable it to generate proposals.' };
         }
 
         const proposals = monitor.generateProposals();
         if (proposals.length === 0) {
-          return { text: '[NeuroVerse] No amendments to propose. Governance is stable.' };
+          return { text: '[NeuroVerseOS] No amendments to propose. Governance is stable.' };
         }
 
         const lines: string[] = [];
@@ -1225,7 +1225,7 @@ export default function register(api: any) {
         }
         const proposalPath = join(proposalsDir, `${id}.json`);
         if (!existsSync(proposalPath)) {
-          return { text: `[NeuroVerse] Proposal ${id} not found.` };
+          return { text: `[NeuroVerseOS] Proposal ${id} not found.` };
         }
 
         const proposal = JSON.parse(readFileSync(proposalPath, 'utf-8'));
@@ -1238,11 +1238,11 @@ export default function register(api: any) {
       // ── /world export ──
       if (subcommand === 'export') {
         if (!existsSync(worldPath)) {
-          return { text: '[NeuroVerse] No world file. Run /world bootstrap first.' };
+          return { text: '[NeuroVerseOS] No world file. Run /world bootstrap first.' };
         }
         return {
           text: [
-            '[NeuroVerse] Export to .nv-world.zip:',
+            '[NeuroVerseOS] Export to .nv-world.zip:',
             '  Use the NeuroVerse configurator at https://www.neuroverseos.com/build/configurator',
             `  Or copy ${worldPath} to use with the Action Space runner.`,
           ].join('\n'),
@@ -1254,35 +1254,35 @@ export default function register(api: any) {
   });
 
   // ── Startup ────────────────────────────────────────────────────
-  api.logger.info('[NeuroVerse] Governance plugin loaded (v1.3.0)');
+  api.logger.info('[NeuroVerseOS] Governance plugin loaded (v1.3.0)');
   if (existsSync(worldPath)) {
     engine.loadWorld();
     engine.loadMeta();
     const status = engine.getStatus();
     const ruleCount = status.invariantCount + status.guardCount + status.ruleCount;
     api.logger.info(
-      `[NeuroVerse] World active: ${ruleCount} rules, ${status.roleCount} roles, ${status.enforcement} enforcement`,
+      `[NeuroVerseOS] World active: ${ruleCount} rules, ${status.roleCount} roles, ${status.enforcement} enforcement`,
     );
     const meta = engine.getMetaRecord();
     if (meta) {
-      api.logger.info(`[NeuroVerse] Integrity: verified (v${meta.version})`);
+      api.logger.info(`[NeuroVerseOS] Integrity: verified (v${meta.version})`);
     }
 
     // Hydrate roleMap from meta bindings (agent identity → governance role)
     engine.hydrateRoleMap(roleMap);
     const bindingCount = engine.getRoleBindings().length;
     if (bindingCount > 0) {
-      api.logger.info(`[NeuroVerse] ${bindingCount} agent(s) bound to roles`);
+      api.logger.info(`[NeuroVerseOS] ${bindingCount} agent(s) bound to roles`);
     }
 
-    api.logger.info(`[NeuroVerse] Type /world for status, /world help for commands`);
+    api.logger.info(`[NeuroVerseOS] Type /world for status, /world help for commands`);
   } else {
     // First install — clean onboarding
-    api.logger.info('[NeuroVerse] Welcome. No governance world found.');
-    api.logger.info('[NeuroVerse] To get started:');
-    api.logger.info('[NeuroVerse]   1. Add .md files defining your agent rules');
-    api.logger.info('[NeuroVerse]   2. Run /world bootstrap to compile them');
-    api.logger.info('[NeuroVerse]   3. Run /world bind <agentId> <roleId> to assign roles');
-    api.logger.info('[NeuroVerse] Type /world help for all commands');
+    api.logger.info('[NeuroVerseOS] Welcome. No governance world found.');
+    api.logger.info('[NeuroVerseOS] To get started:');
+    api.logger.info('[NeuroVerseOS]   1. Add .md files defining your agent rules');
+    api.logger.info('[NeuroVerseOS]   2. Run /world bootstrap to compile them');
+    api.logger.info('[NeuroVerseOS]   3. Run /world bind <agentId> <roleId> to assign roles');
+    api.logger.info('[NeuroVerseOS] Type /world help for all commands');
   }
 }

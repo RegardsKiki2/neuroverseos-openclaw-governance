@@ -1,5 +1,7 @@
 # NeuroVerseOS — Governance Kernel for OpenClaw
 
+![npm version](https://img.shields.io/npm/v/@neuroverseos/governance)
+
 NeuroVerseOS is a deterministic governance kernel for autonomous agents running in OpenClaw.
 
 It compiles your `.md` agent files into a structured World File and enforces invariants, guards, rules, and role-based authority on every tool call.

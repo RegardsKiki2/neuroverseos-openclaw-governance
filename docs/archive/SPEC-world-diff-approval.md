@@ -1,6 +1,9 @@
 # World Diff & Approval Pipeline — Specification
 
-**Status:** Draft
+> **SUPERSEDED** by [SPEC-world-governance-lifecycle.md](../SPEC-world-governance-lifecycle.md)
+> This document is archived for historical reference. Do not use for implementation.
+
+**Status:** Archived
 **Author:** NeuroVerse governance team
 **Date:** 2026-02-28
 **Scope:** Prevents silent governance changes by requiring human approval for all world mutations.

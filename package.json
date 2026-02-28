@@ -1,6 +1,6 @@
 {
   "name": "neuroverseos-governance",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "NeuroVerse governance plugin for OpenClaw — deterministic ALLOW / PAUSE / BLOCK verdicts via structured condition engine",
   "author": "NeuroVerseOS",
   "license": "Apache-2.0",
@@ -23,6 +23,7 @@
     "dist/",
     "openclaw.plugin.json",
     "GOVERNANCE-RUNTIME-SPEC.md",
+    "SPEC-world-governance-lifecycle.md",
     "README.md",
     "LICENSE"
   ],

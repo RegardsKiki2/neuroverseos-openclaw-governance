@@ -843,7 +843,7 @@ export default function register(api: any) {
   });
 
   // ── Startup ────────────────────────────────────────────────────
-  api.logger.info('[NeuroVerse] Governance plugin loaded (v1.0.0)');
+  api.logger.info('[NeuroVerse] Governance plugin loaded (v1.1.0)');
   if (existsSync(worldPath)) {
     engine.loadWorld();
     engine.loadMeta();

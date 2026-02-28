@@ -16,12 +16,18 @@
  *   openclaw plugins install neuroverseos-governance
  *
  * Commands:
+ *   /world              — Quick status dashboard
+ *   /world summary      — One-line protection status
+ *   /world status       — Full governance metrics (drift, audit, friction)
+ *   /world laws         — Display the full constitution
  *   /world bootstrap    — Generate world.json from your .md files
- *   /world status       — Show governance status, drift metrics, audit stats
- *   /world laws         — Display the full constitution (invariants, guards, rules, roles)
+ *   /world bind         — Bind agent identity to governance role
+ *   /world unbind       — Remove agent role binding
+ *   /world bindings     — Show all agent-to-role bindings
  *   /world propose      — Agent recommends governance amendments
  *   /world approve <id> — Human approves a proposed amendment
  *   /world export       — Export for use in other tools
+ *   /world help         — Command reference
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'fs';
@@ -478,6 +484,122 @@ export default function register(api: any) {
     });
   }
 
+  // ── Agent Tool: governance_status ──────────────────────────────
+  // Lets agents answer "am I protected?", "any issues?", "what's enforced?"
+  // by querying structured kernel state. No guessing — deterministic output.
+  api.registerTool({
+    name: 'governance_status',
+    description: 'Query the governance kernel state. Use when the user asks about protection status, pending changes, integrity, role bindings, or audit trail.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          enum: ['summary', 'status', 'bindings', 'audit', 'integrity'],
+          description: 'What aspect of governance to query',
+        },
+      },
+      required: ['query'],
+    },
+    handler: async (args: { query: string }) => {
+      const world = engine.getWorld();
+      const stats = engine.getStatus();
+      const auditCounts = audit.getCounts();
+      const bindings = engine.getRoleBindings();
+      const meta = engine.getMetaRecord();
+
+      if (!world) {
+        return { text: 'No governance world loaded. The user should run /world bootstrap to create one from their .md files.' };
+      }
+
+      switch (args.query) {
+        case 'summary': {
+          const ruleCount = stats.invariantCount + stats.guardCount + stats.ruleCount;
+          const issues: string[] = [];
+          const storedHashes = world.metadata?.mdHashes;
+          if (storedHashes) {
+            const drift = checkMdDrift(workspaceDir, storedHashes);
+            if (drift.changed.length > 0 || drift.added.length > 0 || drift.removed.length > 0) {
+              issues.push('source files have drifted from the active world');
+            }
+          }
+          if (existsSync(join(worldDir, 'world.pending.json'))) {
+            issues.push('pending governance changes await approval');
+          }
+          if (bindings.length === 0 && stats.roleCount > 0) {
+            issues.push('roles are defined but no agents are bound to them');
+          }
+          return {
+            text: JSON.stringify({
+              worldActive: true,
+              worldName: world.metadata.name,
+              enforcement: stats.enforcement,
+              ruleCount,
+              roleCount: stats.roleCount,
+              bindingCount: bindings.length,
+              verdicts: auditCounts,
+              issues,
+            }),
+          };
+        }
+
+        case 'bindings': {
+          const bindingList = bindings.map(b => {
+            const role = world.roles.find(r => r.id === b.roleId);
+            return {
+              agentId: b.agentId,
+              roleId: b.roleId,
+              roleName: role?.name ?? '(unknown)',
+              boundBy: b.boundBy,
+            };
+          });
+          return {
+            text: JSON.stringify({
+              totalBindings: bindings.length,
+              totalRoles: stats.roleCount,
+              availableRoles: world.roles.map(r => ({ id: r.id, name: r.name })),
+              bindings: bindingList,
+            }),
+          };
+        }
+
+        case 'audit': {
+          return {
+            text: JSON.stringify({
+              totalVerdicts: auditCounts.total,
+              allowed: auditCounts.allow,
+              paused: auditCounts.pause,
+              blocked: auditCounts.block,
+              driftStats: monitor?.getStats() ?? null,
+            }),
+          };
+        }
+
+        case 'integrity': {
+          let driftStatus = 'unknown';
+          const storedHashes = world.metadata?.mdHashes;
+          if (storedHashes) {
+            const drift = checkMdDrift(workspaceDir, storedHashes);
+            const hasDrift = drift.changed.length > 0 || drift.added.length > 0 || drift.removed.length > 0;
+            driftStatus = hasDrift ? 'drifted' : 'in_sync';
+          }
+          return {
+            text: JSON.stringify({
+              worldHash: meta?.hash?.slice(0, 16) ?? null,
+              version: meta?.version ?? null,
+              activatedAt: meta?.activatedAt ?? null,
+              sourceDrift: driftStatus,
+              pendingChanges: existsSync(join(worldDir, 'world.pending.json')),
+            }),
+          };
+        }
+
+        default:
+          return { text: 'Unknown query. Use: summary, status, bindings, audit, or integrity.' };
+      }
+    },
+  });
+
   // ── Agent Tool: world_proposal.create ──────────────────────────
   api.registerTool({
     name: 'world_proposal_create',
@@ -623,25 +745,137 @@ export default function register(api: any) {
       const cmdArgs = (ctx.args ?? '').trim();
       const [subcommand, ...rest] = cmdArgs.split(/\s+/);
 
-      // ── /world (no args) or /world help ──
-      if (!subcommand || subcommand === 'help') {
+      // ── /world (no args) — Quick status dashboard ──
+      if (!subcommand) {
+        if (!existsSync(worldPath)) {
+          return {
+            text: [
+              '**NeuroVerse Governance**',
+              '',
+              'No world file found. Run `/world bootstrap` to create one from your .md files.',
+              'Type `/world help` for all commands.',
+            ].join('\n'),
+          };
+        }
+
+        const world = engine.getWorld();
+        const stats = engine.getStatus();
+        const auditCounts = audit.getCounts();
+        const bindings = engine.getRoleBindings();
+        const meta = engine.getMetaRecord();
+        const worldName = world?.metadata?.name ?? 'NeuroVerse';
+
+        // Integrity check
+        let integrityStatus = 'Verified';
+        if (!meta) {
+          integrityStatus = 'No baseline (run /world bootstrap)';
+        }
+
+        // Drift check
+        let driftStatus = 'In sync';
+        const storedHashes = world?.metadata?.mdHashes;
+        if (storedHashes) {
+          const drift = checkMdDrift(workspaceDir, storedHashes);
+          const hasDrift = drift.changed.length > 0 || drift.added.length > 0 || drift.removed.length > 0;
+          if (hasDrift) {
+            const parts: string[] = [];
+            if (drift.changed.length > 0) parts.push(`${drift.changed.length} modified`);
+            if (drift.added.length > 0) parts.push(`${drift.added.length} new`);
+            if (drift.removed.length > 0) parts.push(`${drift.removed.length} removed`);
+            driftStatus = parts.join(', ') + ' — run /world bootstrap';
+          }
+        } else {
+          driftStatus = 'No baseline';
+        }
+
+        // Pending check
+        const pendingPath = join(worldDir, 'world.pending.json');
+        const hasPending = existsSync(pendingPath);
+
+        const lines: string[] = [
+          `**${worldName}** — NeuroVerse Governance`,
+          '',
+          `World:          ACTIVE`,
+          `Integrity:      ${integrityStatus}`,
+          `Enforcement:    ${stats.enforcement}`,
+          `Source drift:    ${driftStatus}`,
+          `Pending updates: ${hasPending ? 'Yes — run /world approve' : 'None'}`,
+          '',
+          `Invariants: ${stats.invariantCount}  Guards: ${stats.guardCount}  Rules: ${stats.ruleCount}  Roles: ${stats.roleCount}`,
+          `Role bindings:  ${bindings.length > 0 ? `${bindings.length} active` : 'None — run /world bind'}`,
+          '',
+          `Verdicts this session:  ${auditCounts.allow} allowed, ${auditCounts.pause} paused, ${auditCounts.block} blocked`,
+        ];
+
+        return { text: lines.join('\n') };
+      }
+
+      // ── /world help ──
+      if (subcommand === 'help') {
         return {
           text: [
-            '**NeuroVerse Governance**',
+            '**NeuroVerse Governance Commands**',
             '',
+            '`/world` — Quick status dashboard',
+            '`/world summary` — One-line protection status',
+            '`/world status` — Full metrics (drift, audit, friction)',
+            '`/world laws` — Read the full constitution',
             '`/world bootstrap` — Generate world.json from your .md files',
-            '`/world status` — Show governance status, drift metrics, audit stats',
-            '`/world laws` — Read the full constitution (invariants, guards, rules, roles)',
-            '`/world bind <agentId> <roleId>` — Bind an agent to a governance role',
-            '`/world unbind <agentId>` — Remove an agent\'s role binding',
-            '`/world bindings` — Show all agent-to-role bindings',
+            '',
+            '**Role bindings:**',
+            '`/world bind <agentId> <roleId>` — Bind an agent to a role',
+            '`/world unbind <agentId>` — Remove a binding',
+            '`/world bindings` — Show all bindings',
+            '',
+            '**Amendments:**',
             '`/world propose` — Agent recommends amendments',
             '`/world approve <id>` — Approve amendment',
-            '`/world export` — Export .nv-world.zip',
+            '`/world export` — Export world file',
             '',
-            'Your .md files stay. Governance moves to world.json.',
-            'Markdown is the interface. The world file is the constitution.',
+            'You can also ask naturally:',
+            '  "Am I protected?"  "Any pending changes?"  "What changed?"',
           ].join('\n'),
+        };
+      }
+
+      // ── /world summary ── One-line conversational status
+      if (subcommand === 'summary') {
+        if (!existsSync(worldPath)) {
+          return { text: 'No governance world loaded. Run `/world bootstrap` to create one.' };
+        }
+
+        const stats = engine.getStatus();
+        const bindings = engine.getRoleBindings();
+        const auditCounts = audit.getCounts();
+
+        // Check for issues
+        const issues: string[] = [];
+        const storedHashes = engine.getWorld()?.metadata?.mdHashes;
+        if (storedHashes) {
+          const drift = checkMdDrift(workspaceDir, storedHashes);
+          if (drift.changed.length > 0 || drift.added.length > 0 || drift.removed.length > 0) {
+            issues.push('source drift detected');
+          }
+        }
+        const pendingPath = join(worldDir, 'world.pending.json');
+        if (existsSync(pendingPath)) {
+          issues.push('pending updates await approval');
+        }
+        if (bindings.length === 0 && stats.roleCount > 0) {
+          issues.push('roles defined but no agents bound');
+        }
+
+        const enforcement = stats.enforcement;
+        const ruleCount = stats.invariantCount + stats.guardCount + stats.ruleCount;
+
+        if (issues.length === 0) {
+          return {
+            text: `Governance active. ${ruleCount} rules enforcing in ${enforcement} mode. ${bindings.length} agent(s) bound. ${auditCounts.total} verdicts logged. No issues.`,
+          };
+        }
+
+        return {
+          text: `Governance active. ${ruleCount} rules enforcing in ${enforcement} mode. ${bindings.length} agent(s) bound. ${auditCounts.total} verdicts logged. Attention: ${issues.join('; ')}.`,
         };
       }
 
@@ -1020,28 +1254,35 @@ export default function register(api: any) {
   });
 
   // ── Startup ────────────────────────────────────────────────────
-  api.logger.info('[NeuroVerse] Governance plugin loaded (v1.2.0)');
+  api.logger.info('[NeuroVerse] Governance plugin loaded (v1.3.0)');
   if (existsSync(worldPath)) {
     engine.loadWorld();
     engine.loadMeta();
     const status = engine.getStatus();
+    const ruleCount = status.invariantCount + status.guardCount + status.ruleCount;
     api.logger.info(
-      `[NeuroVerse] World loaded: ${status.invariantCount} invariants, ${status.guardCount} guards, ${status.ruleCount} rules, ${status.roleCount} roles`,
+      `[NeuroVerse] World active: ${ruleCount} rules, ${status.roleCount} roles, ${status.enforcement} enforcement`,
     );
     const meta = engine.getMetaRecord();
     if (meta) {
-      api.logger.info(`[NeuroVerse] Integrity tracking active (v${meta.version}, hash: ${meta.hash.slice(0, 12)}...)`);
+      api.logger.info(`[NeuroVerse] Integrity: verified (v${meta.version})`);
     }
 
     // Hydrate roleMap from meta bindings (agent identity → governance role)
     engine.hydrateRoleMap(roleMap);
     const bindingCount = engine.getRoleBindings().length;
     if (bindingCount > 0) {
-      api.logger.info(`[NeuroVerse] Role bindings: ${bindingCount} agent(s) bound to roles`);
-    } else {
-      api.logger.info(`[NeuroVerse] No role bindings. Agents are unbound. Run /world bind <agentId> <roleId> to assign.`);
+      api.logger.info(`[NeuroVerse] ${bindingCount} agent(s) bound to roles`);
     }
+
+    api.logger.info(`[NeuroVerse] Type /world for status, /world help for commands`);
   } else {
-    api.logger.info('[NeuroVerse] No world file found. Run /world bootstrap to create one.');
+    // First install — clean onboarding
+    api.logger.info('[NeuroVerse] Welcome. No governance world found.');
+    api.logger.info('[NeuroVerse] To get started:');
+    api.logger.info('[NeuroVerse]   1. Add .md files defining your agent rules');
+    api.logger.info('[NeuroVerse]   2. Run /world bootstrap to compile them');
+    api.logger.info('[NeuroVerse]   3. Run /world bind <agentId> <roleId> to assign roles');
+    api.logger.info('[NeuroVerse] Type /world help for all commands');
   }
 }

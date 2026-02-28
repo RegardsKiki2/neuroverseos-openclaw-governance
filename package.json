@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Deterministic constitutional enforcement layer for agent runtimes.",
   "author": "NeuroVerseOS",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "openclaw": {

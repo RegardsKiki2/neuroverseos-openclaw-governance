@@ -213,4 +213,4 @@ All compositions generate a pending world and require approval.
 
 ## License
 
-MIT
+Apache-2.0

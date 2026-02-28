@@ -9,7 +9,7 @@ No AI calls during enforcement. No network requests. Same world + same event = s
 ## Install
 
 ```bash
-npm install @neuroverse/governance
+npm install @neuroverseos/governance
 ```
 
 ## What NeuroVerseOS Does
@@ -55,19 +55,19 @@ No world change activates silently.
 ## Installation
 
 ```bash
-npm install @neuroverse/governance
+npm install @neuroverseos/governance
 ```
 
 Then in code:
 
 ```js
-const { GovernanceEngine } = require('@neuroverse/governance');
+const { GovernanceEngine } = require('@neuroverseos/governance');
 ```
 
 Or as an OpenClaw plugin:
 
 ```bash
-openclaw plugins install @neuroverse/governance
+openclaw plugins install @neuroverseos/governance
 ```
 
 For local development:

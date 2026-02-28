@@ -303,6 +303,7 @@ export class GovernanceEngine {
           ruleId: 'system:governance-source-protection',
           guard: null,
           evidence: `target: ${targetPath}`,
+          severity: 'governance',
         };
       }
 
@@ -314,6 +315,7 @@ export class GovernanceEngine {
           ruleId: 'system:governance-source-protection',
           guard: 'governance-source-write',
           evidence: `target: ${targetPath}`,
+          severity: 'governance',
         };
       }
     }
@@ -331,6 +333,7 @@ export class GovernanceEngine {
           ruleId: 'system:governance-source-protection',
           guard: null,
           evidence: `command references .neuroverseos/`,
+          severity: 'governance',
         };
       }
     }

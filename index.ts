@@ -56,6 +56,7 @@ interface VerdictContext {
   guardLabel: string;
   guardDescription?: string;
   evidence?: string | null;
+  severity?: 'low' | 'high' | 'critical' | 'governance';
 }
 
 /**
@@ -80,7 +81,19 @@ function promptForDecision(
       output: process.stderr,
     });
 
-    process.stderr.write(`\n[governance] PAUSE\n`);
+    const isGovernance = ctx.severity === 'governance';
+    const isCritical = ctx.severity === 'critical';
+
+    // ── Governance-level pauses get visually distinct treatment ──
+    if (isGovernance) {
+      process.stderr.write(`\n[governance] 🔒 GOVERNANCE PAUSE\n`);
+      process.stderr.write(`             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+    } else if (isCritical) {
+      process.stderr.write(`\n[governance] ⚠️  PAUSE [CRITICAL]\n`);
+    } else {
+      process.stderr.write(`\n[governance] PAUSE\n`);
+    }
+
     if (ctx.agentId) {
       const roleSuffix = ctx.role ? ` (role: ${ctx.role})` : ' (unbound)';
       process.stderr.write(`             agent:    ${ctx.agentId}${roleSuffix}\n`);
@@ -94,6 +107,13 @@ function promptForDecision(
     if (ctx.evidence) {
       process.stderr.write(`             evidence: ${ctx.evidence}\n`);
     }
+
+    // Governance-level pauses get explicit denial guidance
+    if (isGovernance) {
+      process.stderr.write(`             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+      process.stderr.write(`             🚫 DENY this if you did not request this change.\n`);
+    }
+
     process.stderr.write(`             Allow? [y]es once / [a]lways / [n]o: `);
 
     rl.on('line', (answer) => {
@@ -250,6 +270,9 @@ export default function register(api: any) {
   const roleMap = new Map<string, string>();
   const environment = config.environment ?? process.env.NODE_ENV;
 
+  // Track .md files modified by agents during this session (for bootstrap warning)
+  const agentModifiedMdFiles: Map<string, { agentId: string; at: number }> = new Map();
+
   // Storage root: where .neuroverse/ persistent data lives
   const storageRoot = getStorageRoot();
 
@@ -311,7 +334,7 @@ export default function register(api: any) {
     const verdict: GovernanceVerdict = engine.evaluate(govEvent);
 
     // 3. Audit log every verdict (spec §7)
-    const eventId = audit.logVerdict(event.toolName, govEvent.intent, verdict);
+    const eventId = audit.logVerdict(event.toolName, govEvent.intent, verdict, ctx.agentId);
 
     // 4. Track in drift monitor
     monitor?.recordAction(event.toolName, verdict.status, verdict.ruleId ?? undefined);
@@ -362,7 +385,8 @@ export default function register(api: any) {
       }
 
       // Auto-allow mode for CI/headless (spec §6 step 2)
-      if (autoAllow) {
+      // NEVER auto-allow governance-level pauses — these require human decision
+      if (autoAllow && verdict.severity !== 'governance') {
         api.logger.info(`[governance] PAUSE  ${govEvent.intent} (auto-allowed)`);
         api.logger.info(`             ${verdict.guard ?? verdict.ruleId}`);
         audit.logDecision(eventId, 'allow-once');
@@ -380,6 +404,7 @@ export default function register(api: any) {
         guardLabel,
         guardDescription: verdict.reason !== guardLabel ? verdict.reason : undefined,
         evidence: verdict.evidence,
+        severity: verdict.severity,
       });
 
       // Log the decision (spec §7 — every PAUSE paired with a decision)
@@ -389,11 +414,19 @@ export default function register(api: any) {
         if (guardId) allowlist.add(guardId);
         process.stderr.write(`[governance] Added ${guardId} to session allowlist\n\n`);
         monitor?.recordOverride();
+        // Track agent-approved .md modifications for bootstrap warning
+        if (verdict.severity === 'governance' && govEvent.scope?.toLowerCase().endsWith('.md')) {
+          agentModifiedMdFiles.set(govEvent.scope, { agentId: ctx.agentId ?? 'unknown', at: Date.now() });
+        }
         return; // allow — return void
       }
 
       if (decision === 'allow-once') {
         monitor?.recordOverride();
+        // Track agent-approved .md modifications for bootstrap warning
+        if (verdict.severity === 'governance' && govEvent.scope?.toLowerCase().endsWith('.md')) {
+          agentModifiedMdFiles.set(govEvent.scope, { agentId: ctx.agentId ?? 'unknown', at: Date.now() });
+        }
         return; // allow — return void
       }
 
@@ -697,7 +730,7 @@ export default function register(api: any) {
             return;
           }
 
-          logger.info(`\n=== THE LAWS OF ${(world.metadata.name ?? 'NeuroVerse').toUpperCase()} ===\n`);
+          logger.info(`\n=== THE LAWS OF ${(world.metadata.name ?? 'NeuroVerseOS').toUpperCase()} ===\n`);
           if (world.metadata.description) logger.info(world.metadata.description);
           logger.info(`Enforcement: ${world.kernel.enforcementMode} | Overrides: ${world.kernel.sessionOverridesAllowed ? 'allowed' : 'disabled'}\n`);
 
@@ -763,7 +796,7 @@ export default function register(api: any) {
         const auditCounts = audit.getCounts();
         const bindings = engine.getRoleBindings();
         const meta = engine.getMetaRecord();
-        const worldName = world?.metadata?.name ?? 'NeuroVerse';
+        const worldName = world?.metadata?.name ?? 'NeuroVerseOS';
 
         // Integrity check
         let integrityStatus = 'Verified';
@@ -881,7 +914,25 @@ export default function register(api: any) {
 
       // ── /world bootstrap ──
       if (subcommand === 'bootstrap') {
-        const lines: string[] = ['[NeuroVerseOS] Reading .md files from workspace...'];
+        const lines: string[] = [];
+
+        // Warn if agents modified .md files during this session
+        if (agentModifiedMdFiles.size > 0) {
+          lines.push('🔒 GOVERNANCE WARNING');
+          lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          lines.push('The following .md files were modified by agents this session:');
+          for (const [file, { agentId }] of agentModifiedMdFiles) {
+            lines.push(`  ⚠️  ${file}  (by ${agentId})`);
+          }
+          lines.push('');
+          lines.push('Bootstrapping will compile these changes into your World File.');
+          lines.push('Review each file before proceeding. If any changes look');
+          lines.push('unexpected, revert them before bootstrapping.');
+          lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          lines.push('');
+        }
+
+        lines.push('[NeuroVerseOS] Reading .md files from workspace...');
         const mdFiles = readMdFiles(workspaceDir);
 
         for (const file of Object.keys(mdFiles)) {
@@ -992,7 +1043,7 @@ export default function register(api: any) {
 
         const lines: string[] = [
           '\n========================================',
-          `  THE LAWS OF ${(world.metadata.name ?? 'NeuroVerse').toUpperCase()}`,
+          `  THE LAWS OF ${(world.metadata.name ?? 'NeuroVerseOS').toUpperCase()}`,
           '========================================\n',
         ];
 

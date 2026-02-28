@@ -31,8 +31,9 @@ export class AuditLogger {
 
   /**
    * Log a governance verdict. Returns the event ID for pairing with decisions.
+   * Includes agentId for provenance tracking and severity for audit analysis.
    */
-  logVerdict(tool: string, intent: string, verdict: GovernanceVerdict): string {
+  logVerdict(tool: string, intent: string, verdict: GovernanceVerdict, agentId?: string): string {
     const id = nextEventId();
     const entry: AuditEntry = {
       ts: Date.now(),
@@ -42,6 +43,8 @@ export class AuditLogger {
       status: verdict.status,
       ruleId: verdict.ruleId,
       evidence: verdict.evidence,
+      agentId,
+      severity: verdict.severity,
     };
     this.append(entry);
     return id;

@@ -18,6 +18,7 @@
  * Commands:
  *   /world bootstrap    — Generate world.json from your .md files
  *   /world status       — Show governance status, drift metrics, audit stats
+ *   /world laws         — Display the full constitution (invariants, guards, rules, roles)
  *   /world propose      — Agent recommends governance amendments
  *   /world approve <id> — Human approves a proposed amendment
  *   /world export       — Export for use in other tools
@@ -494,6 +495,53 @@ export default function register(api: any) {
           logger.info(`Invariants: ${stats.invariantCount}, Guards: ${stats.guardCount}, Rules: ${stats.ruleCount}, Roles: ${stats.roleCount}`);
           logger.info(`Verdicts — ALLOW: ${auditCounts.allow}, PAUSE: ${auditCounts.pause}, BLOCK: ${auditCounts.block}`);
         });
+
+      // openclaw world laws
+      worldCmd
+        .command('laws')
+        .description('Display the full constitution')
+        .action(() => {
+          if (!existsSync(worldPath)) {
+            logger.info('[NeuroVerse] No world file found. Run /world bootstrap first.');
+            return;
+          }
+          const world = engine.getWorld();
+          if (!world) {
+            logger.info('[NeuroVerse] World file could not be loaded.');
+            return;
+          }
+
+          logger.info(`\n=== THE LAWS OF ${(world.metadata.name ?? 'NeuroVerse').toUpperCase()} ===\n`);
+          if (world.metadata.description) logger.info(world.metadata.description);
+          logger.info(`Enforcement: ${world.kernel.enforcementMode} | Overrides: ${world.kernel.sessionOverridesAllowed ? 'allowed' : 'disabled'}\n`);
+
+          logger.info(`--- INVARIANTS (${world.invariants.length}) ---`);
+          for (const inv of world.invariants) {
+            logger.info(`  [${inv.id}] ${inv.description}`);
+            logger.info(`    When: ${inv.condition.field} ${inv.condition.operator} ${JSON.stringify(inv.condition.value)}`);
+          }
+
+          logger.info(`\n--- GUARDS (${world.guards.length}) ---`);
+          for (const guard of world.guards) {
+            logger.info(`  [${guard.id}] → ${guard.enforcement.toUpperCase()}${guard.description ? ': ' + guard.description : ''}`);
+            logger.info(`    When: ${guard.condition.field} ${guard.condition.operator} ${JSON.stringify(guard.condition.value)}`);
+            if (guard.appliesTo.length > 0) logger.info(`    Applies to: ${guard.appliesTo.join(', ')}`);
+          }
+
+          logger.info(`\n--- RULES (${world.rules.length}) ---`);
+          for (const rule of world.rules) {
+            logger.info(`  [${rule.id}] → ${rule.effect.verdict.toUpperCase()}${rule.description ? ': ' + rule.description : ''}`);
+            logger.info(`    Trigger: ${rule.trigger.field} ${rule.trigger.operator} ${JSON.stringify(rule.trigger.value)}`);
+          }
+
+          logger.info(`\n--- ROLES (${world.roles.length}) ---`);
+          for (const role of world.roles) {
+            logger.info(`  [${role.id}] ${role.name}`);
+            if (role.canDo.length > 0) logger.info(`    Can do: ${role.canDo.join(', ')}`);
+            if (role.cannotDo.length > 0) logger.info(`    Cannot do: ${role.cannotDo.join(', ')}`);
+            logger.info(`    Requires approval: ${role.requiresApproval ? 'yes' : 'no'}`);
+          }
+        });
     },
     { commands: ['world'] },
   );
@@ -504,7 +552,7 @@ export default function register(api: any) {
 
   api.registerCommand({
     name: 'world',
-    description: 'NeuroVerse governance commands (bootstrap, status, propose, approve, export)',
+    description: 'NeuroVerse governance commands (bootstrap, status, laws, propose, approve, export)',
     acceptsArgs: true,
     requireAuth: true,
     handler: async (ctx: any) => {
@@ -519,6 +567,7 @@ export default function register(api: any) {
             '',
             '`/world bootstrap` — Generate world.json from your .md files',
             '`/world status` — Show governance status, drift metrics, audit stats',
+            '`/world laws` — Read the full constitution (invariants, guards, rules, roles)',
             '`/world propose` — Agent recommends amendments',
             '`/world approve <id>` — Approve amendment',
             '`/world export` — Export .nv-world.zip',
@@ -625,6 +674,92 @@ export default function register(api: any) {
           lines.push(`Run /world bootstrap to establish baseline.`);
         }
 
+        return { text: lines.join('\n') };
+      }
+
+      // ── /world laws ──
+      if (subcommand === 'laws') {
+        if (!existsSync(worldPath)) {
+          return { text: '[NeuroVerse] No world file found. Run /world bootstrap first.' };
+        }
+
+        const world = engine.getWorld();
+        if (!world) {
+          return { text: '[NeuroVerse] World file could not be loaded.' };
+        }
+
+        const lines: string[] = [
+          '\n========================================',
+          `  THE LAWS OF ${(world.metadata.name ?? 'NeuroVerse').toUpperCase()}`,
+          '========================================\n',
+        ];
+
+        if (world.metadata.description) {
+          lines.push(`${world.metadata.description}\n`);
+        }
+
+        lines.push(`Bootstrapped from: ${world.metadata.bootstrappedFrom.join(', ')}`);
+        lines.push(`Enforcement mode: ${world.kernel.enforcementMode}`);
+        lines.push(`Session overrides: ${world.kernel.sessionOverridesAllowed ? 'allowed' : 'disabled'}`);
+
+        // ── Invariants ──
+        lines.push(`\n--- INVARIANTS (${world.invariants.length}) ---`);
+        lines.push(`Hard blocks. Cannot be overridden. Ever.\n`);
+        if (world.invariants.length === 0) {
+          lines.push('  (none)');
+        }
+        for (const inv of world.invariants) {
+          lines.push(`  [${inv.id}]`);
+          lines.push(`    ${inv.description}`);
+          lines.push(`    When: ${inv.condition.field} ${inv.condition.operator} ${JSON.stringify(inv.condition.value)}`);
+          if (inv.scope.length > 0) lines.push(`    Scope: ${inv.scope.join(', ')}`);
+          lines.push('');
+        }
+
+        // ── Guards ──
+        lines.push(`--- GUARDS (${world.guards.length}) ---`);
+        lines.push(`Pause or block. Can be session-overridden if allowed.\n`);
+        if (world.guards.length === 0) {
+          lines.push('  (none)');
+        }
+        for (const guard of world.guards) {
+          lines.push(`  [${guard.id}] → ${guard.enforcement.toUpperCase()}`);
+          if (guard.description) lines.push(`    ${guard.description}`);
+          lines.push(`    When: ${guard.condition.field} ${guard.condition.operator} ${JSON.stringify(guard.condition.value)}`);
+          if (guard.appliesTo.length > 0) lines.push(`    Applies to: ${guard.appliesTo.join(', ')}`);
+          if (guard.scope.length > 0) lines.push(`    Scope: ${guard.scope.join(', ')}`);
+          if (guard.requiresApproval) lines.push(`    Requires approval: yes`);
+          lines.push('');
+        }
+
+        // ── Rules ──
+        lines.push(`--- RULES (${world.rules.length}) ---`);
+        lines.push(`Contextual triggers with verdict effects.\n`);
+        if (world.rules.length === 0) {
+          lines.push('  (none)');
+        }
+        for (const rule of world.rules) {
+          lines.push(`  [${rule.id}] → ${rule.effect.verdict.toUpperCase()}`);
+          if (rule.description) lines.push(`    ${rule.description}`);
+          lines.push(`    Trigger: ${rule.trigger.field} ${rule.trigger.operator} ${JSON.stringify(rule.trigger.value)}`);
+          lines.push('');
+        }
+
+        // ── Roles ──
+        lines.push(`--- ROLES (${world.roles.length}) ---`);
+        lines.push(`Identity-based constraints.\n`);
+        if (world.roles.length === 0) {
+          lines.push('  (none)');
+        }
+        for (const role of world.roles) {
+          lines.push(`  [${role.id}] ${role.name}`);
+          if (role.canDo.length > 0) lines.push(`    Can do: ${role.canDo.join(', ')}`);
+          if (role.cannotDo.length > 0) lines.push(`    Cannot do: ${role.cannotDo.join(', ')}`);
+          lines.push(`    Requires approval: ${role.requiresApproval ? 'yes' : 'no'}`);
+          lines.push('');
+        }
+
+        lines.push('========================================');
         return { text: lines.join('\n') };
       }
 

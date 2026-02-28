@@ -184,27 +184,23 @@ function readMdFiles(dir: string): Record<string, string> {
 
 /**
  * Resolve the persistent storage root.
- * Priority: explicit env var → OpenClaw home → /data if writable → local cwd.
- * Plugin must never assume a specific filesystem layout.
+ * Priority: explicit env var → /data if present (Docker) → cwd fallback.
+ *
+ * In OpenClaw Docker containers /data is always the mounted persistent volume.
+ * We detect its *presence* (existsSync), not its permissions (accessSync),
+ * because the node process may not yet have write access at register time
+ * on certain hosts (e.g. Hostinger), causing a false fallback to process.cwd().
  */
 function getStorageRoot(): string {
   // 1. Explicit override — always wins
   if (process.env.OPENCLAW_DATA_DIR) {
     return process.env.OPENCLAW_DATA_DIR;
   }
-  // 2. OpenClaw home convention
-  if (process.env.OPENCLAW_HOME) {
-    return process.env.OPENCLAW_HOME;
-  }
-  // 3. /data exists and is writable — standard OpenClaw container volume
-  try {
-    const { accessSync, constants } = require('fs');
-    accessSync('/data', constants.W_OK);
+  // 2. /data exists — standard OpenClaw container volume
+  if (existsSync('/data')) {
     return '/data';
-  } catch {
-    // /data not available or not writable — not in a container, or different layout
   }
-  // 4. Local dev fallback
+  // 3. Local dev fallback
   return process.cwd();
 }
 

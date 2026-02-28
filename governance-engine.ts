@@ -13,11 +13,18 @@
  * No AI. No network calls. Sub-millisecond per evaluation.
  */
 
-import { readFileSync, existsSync, writeFileSync } from 'fs';
+import { readFileSync, existsSync, writeFileSync, statSync } from 'fs';
+import { createHash } from 'crypto';
+import { join, dirname } from 'path';
 import { evaluateCondition } from './condition-engine';
+import { checkMdDrift } from './world-bootstrap';
 import type {
   GovernanceWorld,
   GovernanceVerdict,
+  GovernanceAlert,
+  ActiveWorldRecord,
+  RoleBinding,
+  BindingChangeSeverity,
   ToolCallEvent,
   EngineConfig,
   EngineStatus,
@@ -51,8 +58,25 @@ export class GovernanceEngine {
   private config: EngineConfig;
   private world: GovernanceWorld | null = null;
 
+  // Runtime integrity state (spec §8)
+  private worldMtimeMs: number = 0;
+  private cachedWorldHash: string | null = null;
+  private metaRecord: ActiveWorldRecord | null = null;
+  private surfacedAlerts: Set<string> = new Set();
+  private workspaceDir: string | null = null;
+
   constructor(config: EngineConfig) {
     this.config = config;
+  }
+
+  /** Set the workspace directory for md drift detection */
+  setWorkspaceDir(dir: string): void {
+    this.workspaceDir = dir;
+  }
+
+  /** Clear surfaced alerts (e.g. on session reset) */
+  clearAlertHistory(): void {
+    this.surfacedAlerts.clear();
   }
 
   // ── World Loading ──────────────────────────────────────────────
@@ -96,13 +120,290 @@ export class GovernanceEngine {
     };
   }
 
+  // ── World Meta / Integrity ───────────────────────────────────
+
+  /** Load or create world.meta.json for integrity tracking */
+  loadMeta(): void {
+    const metaPath = this.getMetaPath();
+    if (!metaPath) return;
+
+    if (existsSync(metaPath)) {
+      try {
+        this.metaRecord = JSON.parse(readFileSync(metaPath, 'utf-8'));
+      } catch {
+        this.metaRecord = null;
+      }
+    } else if (this.world) {
+      // Migration: world.json exists but no meta yet (spec §16)
+      this.metaRecord = {
+        world: this.world,
+        hash: this.computeWorldHash(this.world),
+        activatedAt: Date.now(),
+        activatedBy: 'migration',
+        version: 1,
+      };
+      this.saveMeta();
+    }
+  }
+
+  saveMeta(): void {
+    const metaPath = this.getMetaPath();
+    if (!metaPath || !this.metaRecord) return;
+    writeFileSync(metaPath, JSON.stringify(this.metaRecord, null, 2));
+  }
+
+  getMetaRecord(): ActiveWorldRecord | null {
+    return this.metaRecord;
+  }
+
+  setMetaRecord(record: ActiveWorldRecord): void {
+    this.metaRecord = record;
+  }
+
+  // ── Role Bindings (agentId → roleId) ─────────────────────────
+
+  /**
+   * Get all role bindings from the meta record.
+   * Returns empty array if no bindings exist.
+   */
+  getRoleBindings(): RoleBinding[] {
+    return this.metaRecord?.roleBindings ?? [];
+  }
+
+  /**
+   * Hydrate a Map<agentId, roleId> from stored bindings.
+   * Called at startup and after any binding change.
+   */
+  hydrateRoleMap(roleMap: Map<string, string>): void {
+    roleMap.clear();
+    const bindings = this.getRoleBindings();
+    for (const binding of bindings) {
+      roleMap.set(binding.agentId, binding.roleId);
+    }
+  }
+
+  /**
+   * Add or update a role binding. Returns the severity of the change.
+   * Does NOT auto-save — caller must call saveMeta().
+   */
+  setRoleBinding(agentId: string, roleId: string, boundBy: RoleBinding['boundBy'] = 'human'): BindingChangeSeverity {
+    if (!this.metaRecord) return 'new_binding';
+
+    if (!this.metaRecord.roleBindings) {
+      this.metaRecord.roleBindings = [];
+    }
+
+    const existing = this.metaRecord.roleBindings.find(b => b.agentId === agentId);
+    let severity: BindingChangeSeverity;
+
+    if (!existing) {
+      severity = 'new_binding';
+      this.metaRecord.roleBindings.push({
+        agentId,
+        roleId,
+        boundAt: Date.now(),
+        boundBy,
+      });
+    } else {
+      const oldRoleId = existing.roleId;
+      severity = this.classifyBindingChange(oldRoleId, roleId);
+      existing.roleId = roleId;
+      existing.boundAt = Date.now();
+      existing.boundBy = boundBy;
+    }
+
+    return severity;
+  }
+
+  /**
+   * Remove a role binding. Returns 'removal' severity.
+   * Does NOT auto-save — caller must call saveMeta().
+   */
+  removeRoleBinding(agentId: string): boolean {
+    if (!this.metaRecord?.roleBindings) return false;
+    const idx = this.metaRecord.roleBindings.findIndex(b => b.agentId === agentId);
+    if (idx === -1) return false;
+    this.metaRecord.roleBindings.splice(idx, 1);
+    return true;
+  }
+
+  /**
+   * Classify the severity of changing from one role to another.
+   * Uses the role's requiresApproval and cannotDo as proxy for privilege level.
+   */
+  private classifyBindingChange(oldRoleId: string, newRoleId: string): BindingChangeSeverity {
+    if (oldRoleId === newRoleId) return 'reassignment';
+    if (!this.world) return 'reassignment';
+
+    const oldRole = this.world.roles.find(r => r.id === oldRoleId);
+    const newRole = this.world.roles.find(r => r.id === newRoleId);
+    if (!oldRole || !newRole) return 'reassignment';
+
+    // Privilege proxy: more cannotDo restrictions = lower privilege
+    // requiresApproval = lower privilege
+    const oldPrivilege = this.estimatePrivilege(oldRole);
+    const newPrivilege = this.estimatePrivilege(newRole);
+
+    if (newPrivilege > oldPrivilege) return 'escalation';
+    if (newPrivilege < oldPrivilege) return 'de_escalation';
+    return 'reassignment';
+  }
+
+  /**
+   * Estimate privilege level of a role (higher = more permissive).
+   * Simple heuristic: canDo breadth - cannotDo restrictions - approval overhead.
+   */
+  private estimatePrivilege(role: { canDo: string[]; cannotDo: string[]; requiresApproval: boolean }): number {
+    let score = role.canDo.length;
+    score -= role.cannotDo.length * 2;
+    if (role.requiresApproval) score -= 3;
+    return score;
+  }
+
+  private getMetaPath(): string | null {
+    if (!this.config.worldPath) return null;
+    return join(dirname(this.config.worldPath), 'world.meta.json');
+  }
+
+  /** Canonical SHA-256 hash of a world object (sorted keys, no whitespace) */
+  computeWorldHash(world: GovernanceWorld): string {
+    const canonical = JSON.stringify(world, Object.keys(world).sort());
+    return createHash('sha256').update(canonical).digest('hex');
+  }
+
+  // ── Runtime Integrity Checks (spec §8) ─────────────────────
+
+  /**
+   * Run all integrity checks before the governance pipeline.
+   * Returns accumulated alerts. Critical alerts override the verdict.
+   */
+  private checkIntegrity(): { alerts: GovernanceAlert[]; blocked: GovernanceVerdict | null } {
+    const alerts: GovernanceAlert[] = [];
+    let blocked: GovernanceVerdict | null = null;
+
+    // 1. Hash verification — was world.json tampered?
+    if (this.metaRecord && this.world) {
+      const hashResult = this.verifyWorldHash();
+      if (hashResult) {
+        alerts.push(hashResult);
+        blocked = {
+          status: 'BLOCK',
+          reason: 'World file integrity check failed. File was modified outside approval pipeline.',
+          ruleId: 'system:integrity',
+          guard: null,
+          evidence: 'hash mismatch',
+        };
+      }
+    }
+
+    // 2. World missing — meta exists but world.json was deleted
+    if (this.metaRecord && !this.world) {
+      const alert: GovernanceAlert = {
+        level: 'critical',
+        code: 'WORLD_MISSING',
+        message: 'World file was deleted outside the approval pipeline.',
+        action: 'Run /world restore to reload the last approved version.',
+      };
+      alerts.push(alert);
+      blocked = {
+        status: 'BLOCK',
+        reason: 'World file missing. Was deleted outside approval pipeline.',
+        ruleId: 'system:integrity',
+        guard: null,
+        evidence: 'world.json missing, world.meta.json present',
+      };
+    }
+
+    // 3. Pending world detection — non-blocking
+    if (!blocked) {
+      const pendingPath = join(dirname(this.config.worldPath), 'world.pending.json');
+      if (existsSync(pendingPath) && !this.surfacedAlerts.has('PENDING_UNAPPROVED')) {
+        alerts.push({
+          level: 'info',
+          code: 'PENDING_UNAPPROVED',
+          message: 'Pending governance changes await approval.',
+          action: 'Run /world diff to review.',
+        });
+        this.surfacedAlerts.add('PENDING_UNAPPROVED');
+      }
+    }
+
+    // 4. Source drift detection — non-blocking
+    if (!blocked && this.workspaceDir && this.world?.metadata?.mdHashes) {
+      const driftKey = 'SOURCE_DRIFT';
+      if (!this.surfacedAlerts.has(driftKey)) {
+        const drift = checkMdDrift(this.workspaceDir, this.world.metadata.mdHashes);
+        const hasDrift = drift.changed.length > 0 || drift.added.length > 0 || drift.removed.length > 0;
+        if (hasDrift) {
+          const parts: string[] = [];
+          if (drift.changed.length > 0) parts.push(`modified: ${drift.changed.join(', ')}`);
+          if (drift.added.length > 0) parts.push(`new: ${drift.added.join(', ')}`);
+          if (drift.removed.length > 0) parts.push(`removed: ${drift.removed.join(', ')}`);
+          alerts.push({
+            level: 'warning',
+            code: 'SOURCE_DRIFT',
+            message: 'Governance source files have changed since last bootstrap.',
+            action: 'Run /world bootstrap to review.',
+            details: parts.join('; '),
+          });
+          this.surfacedAlerts.add(driftKey);
+        }
+      }
+    }
+
+    return { alerts, blocked };
+  }
+
+  /**
+   * Verify world.json hash against stored hash.
+   * Uses mtime cache to avoid re-reading on every call.
+   */
+  private verifyWorldHash(): GovernanceAlert | null {
+    if (!this.metaRecord || !existsSync(this.config.worldPath)) return null;
+
+    try {
+      const stat = statSync(this.config.worldPath);
+      const currentMtime = stat.mtimeMs;
+
+      // Only re-hash if file was modified since last check
+      if (currentMtime !== this.worldMtimeMs) {
+        const raw = readFileSync(this.config.worldPath, 'utf-8');
+        const currentWorld: GovernanceWorld = JSON.parse(raw);
+        this.cachedWorldHash = this.computeWorldHash(currentWorld);
+        this.worldMtimeMs = currentMtime;
+      }
+
+      if (this.cachedWorldHash && this.cachedWorldHash !== this.metaRecord.hash) {
+        return {
+          level: 'critical',
+          code: 'TAMPERED',
+          message: 'World file integrity check failed. Modified outside approval pipeline.',
+          action: 'Run /world restore to reload the last approved version.',
+          details: `expected: ${this.metaRecord.hash.slice(0, 12)}..., found: ${this.cachedWorldHash.slice(0, 12)}...`,
+        };
+      }
+    } catch {
+      // File unreadable — will be caught by other checks
+    }
+
+    return null;
+  }
+
   // ── Decision Pipeline (spec §3) ───────────────────────────────
 
   /**
    * Evaluate a tool call event against the loaded world.
    * Returns a deterministic verdict: ALLOW, PAUSE, or BLOCK.
+   * Now includes runtime integrity checks (spec §8).
    */
   evaluate(event: ToolCallEvent): GovernanceVerdict {
+    // Runtime integrity checks run before governance pipeline
+    const { alerts, blocked } = this.checkIntegrity();
+
+    if (blocked) {
+      return { ...blocked, alerts: alerts.length > 0 ? alerts : undefined };
+    }
+
     if (!this.world) return NO_WORLD;
 
     // Observe-only: run pipeline but always return ALLOW
@@ -115,12 +416,17 @@ export class GovernanceEngine {
           ruleId: wouldBe.ruleId,
           guard: wouldBe.guard,
           evidence: wouldBe.evidence,
+          alerts: alerts.length > 0 ? alerts : undefined,
         };
       }
-      return DEFAULT_ALLOW;
+      return { ...DEFAULT_ALLOW, alerts: alerts.length > 0 ? alerts : undefined };
     }
 
-    return this.runPipeline(event);
+    const verdict = this.runPipeline(event);
+    if (alerts.length > 0) {
+      return { ...verdict, alerts };
+    }
+    return verdict;
   }
 
   /**

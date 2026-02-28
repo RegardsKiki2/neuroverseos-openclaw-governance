@@ -1,7 +1,7 @@
 {
   "id": "neuroverseos-governance",
   "name": "NeuroVerse Governance",
-  "version": "1.0.0",
+  "version": "1.3.0",
   "description": "Governance plugin for OpenClaw. Structured condition engine. Deterministic verdicts: ALLOW / PAUSE / BLOCK. Audit log. No AI in enforcement.",
   "author": "NeuroVerseOS",
   "homepage": "https://www.neuroverseos.com",
@@ -13,7 +13,7 @@
     "properties": {
       "worldPath": {
         "type": "string",
-        "description": "Path to world.json governance file (default: .neuroverse/world.json)"
+        "description": "Path to world.json governance file (default: .neuroverseos/world.json)"
       },
       "enforcement": {
         "type": "string",
@@ -47,7 +47,7 @@
     }
   },
   "uiHints": {
-    "worldPath": { "label": "World File Path", "placeholder": ".neuroverse/world.json" },
+    "worldPath": { "label": "World File Path", "placeholder": ".neuroverseos/world.json" },
     "enforcement": { "label": "Enforcement Level" },
     "observeFirst": { "label": "Observe First Mode" },
     "driftTracking": { "label": "Drift Tracking" },

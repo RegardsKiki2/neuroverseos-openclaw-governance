@@ -168,13 +168,63 @@ This lets you tune your `world.json` before going live.
 
 | Command | Description |
 |---------|-------------|
-| `/world bootstrap` | Generate `world.json` from your `.md` files |
-| `/world status` | View governance metrics, drift detection, audit stats |
+| `/world bootstrap` | Compile `.md` files into a pending world |
+| `/world status` | View governance metrics, integrity status, audit stats |
+| `/world laws` | Display the full active constitution |
+| `/world diff` | Show pending changes vs active world |
+| `/world approve` | Activate a pending world (critical changes require `--confirm`) |
+| `/world reject` | Discard pending world |
+| `/world history` | List previous world versions |
+| `/world rollback <N>` | Restore a previous version as pending |
+| `/world restore` | Recover from tampering (reload last approved world) |
 | `/world propose` | Generate amendment proposals from drift patterns |
-| `/world approve <id>` | Approve a proposed amendment |
 | `/world export` | Export for use in other NeuroVerse tools |
 
 Also available as CLI commands via `openclaw world <subcommand>`.
+
+## Runtime Integrity
+
+On every tool call, the governance engine verifies system health before evaluating rules:
+
+| Check | What it detects | Response |
+|-------|----------------|----------|
+| World hash | `world.json` modified outside approval pipeline | BLOCK all actions |
+| World presence | `world.json` deleted while `world.meta.json` exists | BLOCK all actions |
+| Pending world | `world.pending.json` exists, unapproved | Warn (once per session) |
+| Source drift | `.md` files changed since last bootstrap | Warn (once per session) |
+
+**Critical failures fail closed.** A tampered or missing world blocks all agent actions until resolved. Drift and pending changes warn but do not interrupt enforcement.
+
+```
+[governance] [!!!] World file integrity check failed. Modified outside approval pipeline.
+             expected: a1b2c3d4e5f6..., found: 9z8y7x6w5v4u...
+             → Run /world restore to reload the last approved version.
+```
+
+### Red-team proof
+
+```bash
+# Tamper with the active world
+echo '{}' > .neuroverse/world.json
+
+# Next tool call → immediate BLOCK
+[governance] [!!!] World file integrity check failed. Modified outside approval pipeline.
+[governance] BLOCK  shell → ls
+             system:integrity
+
+# Delete the world entirely
+rm .neuroverse/world.json
+
+# Next tool call → immediate BLOCK
+[governance] [!!!] World file was deleted outside the approval pipeline.
+[governance] BLOCK  shell → ls
+             system:integrity
+
+# Recover
+/world restore
+```
+
+The engine holds a copy of the last approved world in `world.meta.json`. Recovery is always possible.
 
 ## Constitution Drift Detection
 

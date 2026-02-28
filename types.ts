@@ -115,6 +115,26 @@ export interface WorldMetadata {
 }
 
 // ────────────────────────────────────────────────────────────────────────
+// Governance Alerts — Proactive drift detection (spec §8–9)
+// ────────────────────────────────────────────────────────────────────────
+
+export type AlertCode =
+  | 'TAMPERED'
+  | 'WORLD_MISSING'
+  | 'WORLD_CORRUPTED'
+  | 'SOURCE_DRIFT'
+  | 'PENDING_UNAPPROVED'
+  | 'UNBOUND_AGENT';
+
+export interface GovernanceAlert {
+  level: 'critical' | 'warning' | 'info';
+  code: AlertCode;
+  message: string;
+  action: string;
+  details?: string;
+}
+
+// ────────────────────────────────────────────────────────────────────────
 // Verdict
 // ────────────────────────────────────────────────────────────────────────
 
@@ -124,6 +144,8 @@ export interface GovernanceVerdict {
   ruleId: string | null;
   guard: string | null;
   evidence: string | null;
+  /** Runtime integrity and drift alerts. Separate from enforcement. */
+  alerts?: GovernanceAlert[];
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -146,6 +168,98 @@ export interface AuditDecisionEntry {
   type: 'decision';
   decision: 'allow-once' | 'allow-always' | 'deny';
   decidedAt: number;
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Role Bindings — Agent Identity → Governance Role (environment-specific)
+// ────────────────────────────────────────────────────────────────────────
+
+/**
+ * Maps an agent identity (from OpenClaw ctx.agentId) to a governance role.
+ * Lives in world.meta.json, NOT world.json, because:
+ *   - World files are portable and environment-agnostic
+ *   - Agent IDs are environment-specific (tied to an OpenClaw instance)
+ * Changing bindings is a governed action with severity classification.
+ */
+export interface RoleBinding {
+  agentId: string;
+  roleId: string;
+  boundAt: number;
+  boundBy: 'human' | 'bootstrap' | 'migration';
+}
+
+/**
+ * Severity of a role binding change. Used for lifecycle governance.
+ *   - new_binding:   agent had no role → gets one (low)
+ *   - reassignment:  agent changes role at same privilege level (high)
+ *   - escalation:    agent moves to higher-privilege role (critical)
+ *   - de_escalation: agent moves to lower-privilege role (low)
+ *   - removal:       agent loses role binding (high)
+ */
+export type BindingChangeSeverity =
+  | 'new_binding'
+  | 'reassignment'
+  | 'escalation'
+  | 'de_escalation'
+  | 'removal';
+
+// ────────────────────────────────────────────────────────────────────────
+// World Integrity (spec §11)
+// ────────────────────────────────────────────────────────────────────────
+
+export interface ActiveWorldRecord {
+  world: GovernanceWorld;
+  hash: string;
+  activatedAt: number;
+  activatedBy: 'human' | 'migration';
+  version: number;
+  /** Agent-to-role bindings. Environment-specific, not part of the portable world. */
+  roleBindings?: RoleBinding[];
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// World Diff (spec §6)
+// ────────────────────────────────────────────────────────────────────────
+
+export interface WorldDiffSection<T> {
+  added: T[];
+  removed: T[];
+  modified: { before: T; after: T; changes: string[] }[];
+  unchanged: number;
+}
+
+export interface WorldDiff {
+  invariants: WorldDiffSection<Invariant>;
+  guards: WorldDiffSection<Guard>;
+  rules: WorldDiffSection<Rule>;
+  roles: WorldDiffSection<Role>;
+  kernel: {
+    changed: boolean;
+    before: Kernel | null;
+    after: Kernel;
+  };
+  severity: 'none' | 'low' | 'high' | 'critical';
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// World Audit (spec §13)
+// ────────────────────────────────────────────────────────────────────────
+
+export interface WorldAuditEntry {
+  ts: number;
+  type: 'world_event';
+  event:
+    | 'bootstrap_proposed'
+    | 'approved'
+    | 'rejected'
+    | 'rollback_proposed'
+    | 'tampering_detected'
+    | 'restored'
+    | 'source_drift_detected';
+  severity: 'none' | 'low' | 'high' | 'critical';
+  diff_summary: string;
+  version_before: number;
+  version_after: number;
 }
 
 // ────────────────────────────────────────────────────────────────────────

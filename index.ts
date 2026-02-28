@@ -31,24 +31,42 @@ import { bootstrapWorldFromMarkdown, checkMdDrift } from './world-bootstrap';
 import { GovernanceEngine } from './governance-engine';
 import { DriftMonitor } from './drift-monitor';
 import { AuditLogger } from './audit-logger';
-import type { ToolCallEvent, GovernanceVerdict, GovernanceAlert } from './types';
+import type { ToolCallEvent, GovernanceVerdict, GovernanceAlert, BindingChangeSeverity } from './types';
 
 // ────────────────────────────────────────────────────────────────────────
 // Terminal Prompt — Interactive pause resolution (spec §6)
 // ────────────────────────────────────────────────────────────────────────
 
 /**
+ * Context for governance verdict display.
+ * Shows the full picture: who, what, why, evidence.
+ */
+interface VerdictContext {
+  agentId?: string;
+  role?: string;
+  tool: string;
+  scope?: string;
+  intent: string;
+  guardLabel: string;
+  guardDescription?: string;
+  evidence?: string | null;
+}
+
+/**
  * Prompt the developer in the terminal for a pause decision.
  * Blocks until they respond. Returns their choice.
  *
- * Display format matches spec:
- *   [governance] PAUSE  rm -rf /data
- *                guard: destructive_shell_requires_approval
- *                Allow? [y]es once / [a]lways / [n]o: _
+ * Display format — full agent context:
+ *   [governance] PAUSE
+ *     agent:    coder-agent-01 (role: executor)
+ *     action:   file_write → /etc/passwd
+ *     guard:    guard-sensitive-paths
+ *               "Blocks writes to system directories"
+ *     evidence: path matches /etc/*
+ *     Allow? [y]es once / [a]lways / [n]o: _
  */
 function promptForDecision(
-  intent: string,
-  guardLabel: string,
+  ctx: VerdictContext,
 ): Promise<'allow-once' | 'allow-always' | 'deny'> {
   return new Promise((resolvePrompt) => {
     const rl = createInterface({
@@ -56,8 +74,20 @@ function promptForDecision(
       output: process.stderr,
     });
 
-    process.stderr.write(`\n[governance] PAUSE  ${intent}\n`);
-    process.stderr.write(`             guard: ${guardLabel}\n`);
+    process.stderr.write(`\n[governance] PAUSE\n`);
+    if (ctx.agentId) {
+      const roleSuffix = ctx.role ? ` (role: ${ctx.role})` : ' (unbound)';
+      process.stderr.write(`             agent:    ${ctx.agentId}${roleSuffix}\n`);
+    }
+    const actionTarget = ctx.scope ? ` → ${ctx.scope}` : '';
+    process.stderr.write(`             action:   ${ctx.tool}${actionTarget}\n`);
+    process.stderr.write(`             guard:    ${ctx.guardLabel}\n`);
+    if (ctx.guardDescription) {
+      process.stderr.write(`                       "${ctx.guardDescription}"\n`);
+    }
+    if (ctx.evidence) {
+      process.stderr.write(`             evidence: ${ctx.evidence}\n`);
+    }
     process.stderr.write(`             Allow? [y]es once / [a]lways / [n]o: `);
 
     rl.on('line', (answer) => {
@@ -296,8 +326,15 @@ export default function register(api: any) {
 
     // ── BLOCK ──────────────────────────────────────────────
     if (verdict.status === 'BLOCK') {
-      api.logger.warn(`[governance] BLOCK  ${govEvent.intent}`);
-      api.logger.warn(`             ${verdict.ruleId ?? verdict.reason}`);
+      api.logger.warn(`[governance] BLOCK`);
+      if (ctx.agentId) {
+        const roleSuffix = govEvent.role ? ` (role: ${govEvent.role})` : ' (unbound)';
+        api.logger.warn(`             agent:    ${ctx.agentId}${roleSuffix}`);
+      }
+      const actionTarget = govEvent.scope ? ` → ${govEvent.scope}` : '';
+      api.logger.warn(`             action:   ${event.toolName}${actionTarget}`);
+      api.logger.warn(`             rule:     ${verdict.ruleId ?? 'default'}`);
+      api.logger.warn(`             reason:   ${verdict.reason}`);
       if (verdict.evidence) {
         api.logger.warn(`             evidence: ${verdict.evidence}`);
       }
@@ -326,9 +363,18 @@ export default function register(api: any) {
         return; // allow — return void
       }
 
-      // Interactive prompt (spec §6 step 3)
+      // Interactive prompt with full context (spec §6 step 3)
       const guardLabel = verdict.guard ?? verdict.ruleId ?? 'governance rule';
-      const decision = await promptForDecision(govEvent.intent, guardLabel);
+      const decision = await promptForDecision({
+        agentId: ctx.agentId,
+        role: govEvent.role,
+        tool: event.toolName,
+        scope: govEvent.scope,
+        intent: govEvent.intent,
+        guardLabel,
+        guardDescription: verdict.reason !== guardLabel ? verdict.reason : undefined,
+        evidence: verdict.evidence,
+      });
 
       // Log the decision (spec §7 — every PAUSE paired with a decision)
       audit.logDecision(eventId, decision);
@@ -586,6 +632,9 @@ export default function register(api: any) {
             '`/world bootstrap` — Generate world.json from your .md files',
             '`/world status` — Show governance status, drift metrics, audit stats',
             '`/world laws` — Read the full constitution (invariants, guards, rules, roles)',
+            '`/world bind <agentId> <roleId>` — Bind an agent to a governance role',
+            '`/world unbind <agentId>` — Remove an agent\'s role binding',
+            '`/world bindings` — Show all agent-to-role bindings',
             '`/world propose` — Agent recommends amendments',
             '`/world approve <id>` — Approve amendment',
             '`/world export` — Export .nv-world.zip',
@@ -647,6 +696,7 @@ export default function register(api: any) {
           `Guards: ${stats.guardCount}`,
           `Rules: ${stats.ruleCount}`,
           `Roles: ${stats.roleCount}`,
+          `Role bindings: ${engine.getRoleBindings().length}`,
           `\n--- Audit Log ---`,
           `Total verdicts: ${auditCounts.total}`,
           `  ALLOW: ${auditCounts.allow}`,
@@ -777,7 +827,134 @@ export default function register(api: any) {
           lines.push('');
         }
 
+        // ── Role Bindings ──
+        const bindings = engine.getRoleBindings();
+        lines.push(`--- ROLE BINDINGS (${bindings.length}) ---`);
+        lines.push(`Agent identity → governance role. Environment-specific.\n`);
+        if (bindings.length === 0) {
+          lines.push('  (none — roles are defined but no agents are bound)');
+          lines.push('  Run /world bind <agentId> <roleId> to assign.');
+        }
+        for (const binding of bindings) {
+          const role = world.roles.find(r => r.id === binding.roleId);
+          const roleName = role ? role.name : '(unknown role)';
+          lines.push(`  ${binding.agentId} → [${binding.roleId}] ${roleName}`);
+          lines.push(`    Bound by: ${binding.boundBy}`);
+        }
+        lines.push('');
+
         lines.push('========================================');
+        return { text: lines.join('\n') };
+      }
+
+      // ── /world bind <agentId> <roleId> ──
+      if (subcommand === 'bind') {
+        const [agentId, roleId] = rest;
+        if (!agentId || !roleId) {
+          return { text: 'Usage: `/world bind <agentId> <roleId>`\n\nExample: `/world bind agent-coder-01 executor`' };
+        }
+
+        // Validate roleId exists in the world
+        const world = engine.getWorld();
+        if (!world) {
+          return { text: '[NeuroVerse] No world loaded. Run /world bootstrap first.' };
+        }
+        const role = world.roles.find(r => r.id === roleId);
+        if (!role) {
+          const available = world.roles.map(r => `\`${r.id}\` (${r.name})`).join(', ');
+          return { text: `[NeuroVerse] Role "${roleId}" not found.\n\nAvailable roles: ${available}` };
+        }
+
+        const meta = engine.getMetaRecord();
+        if (!meta) {
+          return { text: '[NeuroVerse] No meta record. Run /world bootstrap first.' };
+        }
+
+        // Classify severity and apply
+        const severity = engine.setRoleBinding(agentId, roleId, 'human');
+        engine.saveMeta();
+        engine.hydrateRoleMap(roleMap);
+
+        const severityLabel: Record<string, string> = {
+          new_binding: 'LOW — new binding',
+          reassignment: 'HIGH — role reassignment',
+          escalation: 'CRITICAL — privilege escalation',
+          de_escalation: 'LOW — privilege de-escalation',
+          removal: 'HIGH — binding removed',
+        };
+
+        const lines: string[] = [
+          `[NeuroVerse] Role binding updated.`,
+          `  Agent:    ${agentId}`,
+          `  Role:     ${role.id} (${role.name})`,
+          `  Severity: ${severityLabel[severity] ?? severity}`,
+          `  Can do:   ${role.canDo.join(', ') || '(none)'}`,
+          `  Cannot do: ${role.cannotDo.join(', ') || '(none)'}`,
+          `  Requires approval: ${role.requiresApproval ? 'yes' : 'no'}`,
+        ];
+
+        if (severity === 'escalation') {
+          lines.push('');
+          lines.push('  ⚠ This is a privilege escalation. The agent now has broader permissions.');
+        }
+
+        return { text: lines.join('\n') };
+      }
+
+      // ── /world unbind <agentId> ──
+      if (subcommand === 'unbind') {
+        const [agentId] = rest;
+        if (!agentId) {
+          return { text: 'Usage: `/world unbind <agentId>`' };
+        }
+
+        const removed = engine.removeRoleBinding(agentId);
+        if (!removed) {
+          return { text: `[NeuroVerse] No binding found for agent "${agentId}".` };
+        }
+
+        engine.saveMeta();
+        engine.hydrateRoleMap(roleMap);
+
+        return {
+          text: [
+            `[NeuroVerse] Role binding removed.`,
+            `  Agent: ${agentId}`,
+            `  Status: unbound (deny-by-default — role constraints will not apply)`,
+          ].join('\n'),
+        };
+      }
+
+      // ── /world bindings ──
+      if (subcommand === 'bindings') {
+        const bindings = engine.getRoleBindings();
+        if (bindings.length === 0) {
+          return {
+            text: [
+              '[NeuroVerse] No role bindings configured.',
+              '',
+              'Agents are unbound. Role constraints are inert.',
+              'Run `/world bind <agentId> <roleId>` to assign roles.',
+              '',
+              'Available roles:',
+              ...(engine.getWorld()?.roles.map(r => `  \`${r.id}\` — ${r.name}`) ?? ['  (no world loaded)']),
+            ].join('\n'),
+          };
+        }
+
+        const lines: string[] = [
+          '**Agent Role Bindings**',
+          '',
+        ];
+
+        for (const binding of bindings) {
+          const role = engine.getWorld()?.roles.find(r => r.id === binding.roleId);
+          const roleName = role ? ` (${role.name})` : ' (role not found in world)';
+          const boundDate = new Date(binding.boundAt).toISOString().slice(0, 19);
+          lines.push(`  \`${binding.agentId}\` → \`${binding.roleId}\`${roleName}`);
+          lines.push(`    Bound by: ${binding.boundBy} at ${boundDate}`);
+        }
+
         return { text: lines.join('\n') };
       }
 
@@ -843,7 +1020,7 @@ export default function register(api: any) {
   });
 
   // ── Startup ────────────────────────────────────────────────────
-  api.logger.info('[NeuroVerse] Governance plugin loaded (v1.1.0)');
+  api.logger.info('[NeuroVerse] Governance plugin loaded (v1.2.0)');
   if (existsSync(worldPath)) {
     engine.loadWorld();
     engine.loadMeta();
@@ -854,6 +1031,15 @@ export default function register(api: any) {
     const meta = engine.getMetaRecord();
     if (meta) {
       api.logger.info(`[NeuroVerse] Integrity tracking active (v${meta.version}, hash: ${meta.hash.slice(0, 12)}...)`);
+    }
+
+    // Hydrate roleMap from meta bindings (agent identity → governance role)
+    engine.hydrateRoleMap(roleMap);
+    const bindingCount = engine.getRoleBindings().length;
+    if (bindingCount > 0) {
+      api.logger.info(`[NeuroVerse] Role bindings: ${bindingCount} agent(s) bound to roles`);
+    } else {
+      api.logger.info(`[NeuroVerse] No role bindings. Agents are unbound. Run /world bind <agentId> <roleId> to assign.`);
     }
   } else {
     api.logger.info('[NeuroVerse] No world file found. Run /world bootstrap to create one.');

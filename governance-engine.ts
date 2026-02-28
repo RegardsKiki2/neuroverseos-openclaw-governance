@@ -23,6 +23,8 @@ import type {
   GovernanceVerdict,
   GovernanceAlert,
   ActiveWorldRecord,
+  RoleBinding,
+  BindingChangeSeverity,
   ToolCallEvent,
   EngineConfig,
   EngineStatus,
@@ -156,6 +158,106 @@ export class GovernanceEngine {
 
   setMetaRecord(record: ActiveWorldRecord): void {
     this.metaRecord = record;
+  }
+
+  // ── Role Bindings (agentId → roleId) ─────────────────────────
+
+  /**
+   * Get all role bindings from the meta record.
+   * Returns empty array if no bindings exist.
+   */
+  getRoleBindings(): RoleBinding[] {
+    return this.metaRecord?.roleBindings ?? [];
+  }
+
+  /**
+   * Hydrate a Map<agentId, roleId> from stored bindings.
+   * Called at startup and after any binding change.
+   */
+  hydrateRoleMap(roleMap: Map<string, string>): void {
+    roleMap.clear();
+    const bindings = this.getRoleBindings();
+    for (const binding of bindings) {
+      roleMap.set(binding.agentId, binding.roleId);
+    }
+  }
+
+  /**
+   * Add or update a role binding. Returns the severity of the change.
+   * Does NOT auto-save — caller must call saveMeta().
+   */
+  setRoleBinding(agentId: string, roleId: string, boundBy: RoleBinding['boundBy'] = 'human'): BindingChangeSeverity {
+    if (!this.metaRecord) return 'new_binding';
+
+    if (!this.metaRecord.roleBindings) {
+      this.metaRecord.roleBindings = [];
+    }
+
+    const existing = this.metaRecord.roleBindings.find(b => b.agentId === agentId);
+    let severity: BindingChangeSeverity;
+
+    if (!existing) {
+      severity = 'new_binding';
+      this.metaRecord.roleBindings.push({
+        agentId,
+        roleId,
+        boundAt: Date.now(),
+        boundBy,
+      });
+    } else {
+      const oldRoleId = existing.roleId;
+      severity = this.classifyBindingChange(oldRoleId, roleId);
+      existing.roleId = roleId;
+      existing.boundAt = Date.now();
+      existing.boundBy = boundBy;
+    }
+
+    return severity;
+  }
+
+  /**
+   * Remove a role binding. Returns 'removal' severity.
+   * Does NOT auto-save — caller must call saveMeta().
+   */
+  removeRoleBinding(agentId: string): boolean {
+    if (!this.metaRecord?.roleBindings) return false;
+    const idx = this.metaRecord.roleBindings.findIndex(b => b.agentId === agentId);
+    if (idx === -1) return false;
+    this.metaRecord.roleBindings.splice(idx, 1);
+    return true;
+  }
+
+  /**
+   * Classify the severity of changing from one role to another.
+   * Uses the role's requiresApproval and cannotDo as proxy for privilege level.
+   */
+  private classifyBindingChange(oldRoleId: string, newRoleId: string): BindingChangeSeverity {
+    if (oldRoleId === newRoleId) return 'reassignment';
+    if (!this.world) return 'reassignment';
+
+    const oldRole = this.world.roles.find(r => r.id === oldRoleId);
+    const newRole = this.world.roles.find(r => r.id === newRoleId);
+    if (!oldRole || !newRole) return 'reassignment';
+
+    // Privilege proxy: more cannotDo restrictions = lower privilege
+    // requiresApproval = lower privilege
+    const oldPrivilege = this.estimatePrivilege(oldRole);
+    const newPrivilege = this.estimatePrivilege(newRole);
+
+    if (newPrivilege > oldPrivilege) return 'escalation';
+    if (newPrivilege < oldPrivilege) return 'de_escalation';
+    return 'reassignment';
+  }
+
+  /**
+   * Estimate privilege level of a role (higher = more permissive).
+   * Simple heuristic: canDo breadth - cannotDo restrictions - approval overhead.
+   */
+  private estimatePrivilege(role: { canDo: string[]; cannotDo: string[]; requiresApproval: boolean }): number {
+    let score = role.canDo.length;
+    score -= role.cannotDo.length * 2;
+    if (role.requiresApproval) score -= 3;
+    return score;
   }
 
   private getMetaPath(): string | null {

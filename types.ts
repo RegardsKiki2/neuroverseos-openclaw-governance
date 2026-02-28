@@ -123,7 +123,8 @@ export type AlertCode =
   | 'WORLD_MISSING'
   | 'WORLD_CORRUPTED'
   | 'SOURCE_DRIFT'
-  | 'PENDING_UNAPPROVED';
+  | 'PENDING_UNAPPROVED'
+  | 'UNBOUND_AGENT';
 
 export interface GovernanceAlert {
   level: 'critical' | 'warning' | 'info';
@@ -170,6 +171,39 @@ export interface AuditDecisionEntry {
 }
 
 // ────────────────────────────────────────────────────────────────────────
+// Role Bindings — Agent Identity → Governance Role (environment-specific)
+// ────────────────────────────────────────────────────────────────────────
+
+/**
+ * Maps an agent identity (from OpenClaw ctx.agentId) to a governance role.
+ * Lives in world.meta.json, NOT world.json, because:
+ *   - World files are portable and environment-agnostic
+ *   - Agent IDs are environment-specific (tied to an OpenClaw instance)
+ * Changing bindings is a governed action with severity classification.
+ */
+export interface RoleBinding {
+  agentId: string;
+  roleId: string;
+  boundAt: number;
+  boundBy: 'human' | 'bootstrap' | 'migration';
+}
+
+/**
+ * Severity of a role binding change. Used for lifecycle governance.
+ *   - new_binding:   agent had no role → gets one (low)
+ *   - reassignment:  agent changes role at same privilege level (high)
+ *   - escalation:    agent moves to higher-privilege role (critical)
+ *   - de_escalation: agent moves to lower-privilege role (low)
+ *   - removal:       agent loses role binding (high)
+ */
+export type BindingChangeSeverity =
+  | 'new_binding'
+  | 'reassignment'
+  | 'escalation'
+  | 'de_escalation'
+  | 'removal';
+
+// ────────────────────────────────────────────────────────────────────────
 // World Integrity (spec §11)
 // ────────────────────────────────────────────────────────────────────────
 
@@ -179,6 +213,8 @@ export interface ActiveWorldRecord {
   activatedAt: number;
   activatedBy: 'human' | 'migration';
   version: number;
+  /** Agent-to-role bindings. Environment-specific, not part of the portable world. */
+  roleBindings?: RoleBinding[];
 }
 
 // ────────────────────────────────────────────────────────────────────────

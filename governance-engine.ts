@@ -274,6 +274,71 @@ export class GovernanceEngine {
   // ── Runtime Integrity Checks (spec §8) ─────────────────────
 
   /**
+   * System-level protection: intercept modifications to governance source files.
+   *
+   * This runs BEFORE all user-defined rules and cannot be removed by
+   * modifying world.json. It is the engine's self-protection layer.
+   *
+   * - write_file / edit_file targeting .neuroverseos/ → BLOCK
+   * - write_file / edit_file targeting .md files → PAUSE
+   * - shell commands referencing .neuroverseos/ → BLOCK
+   *
+   * The PAUSE verdict flows through the existing interactive prompt in the
+   * before_tool_call hook. Session overrides ("always") are handled there.
+   */
+  private checkGovernanceSourceProtection(event: ToolCallEvent): GovernanceVerdict | null {
+    const toolLower = event.tool.toLowerCase();
+    const targetPath = event.scope || (event.args?.file_path as string) || '';
+    const pathLower = targetPath.toLowerCase();
+
+    // ── File-writing tools ──────────────────────────────────
+    const isFileWrite = toolLower.includes('write') || toolLower.includes('edit');
+
+    if (isFileWrite && pathLower) {
+      // BLOCK: Direct modification of governance state directory
+      if (pathLower.includes('.neuroverseos')) {
+        return {
+          status: 'BLOCK',
+          reason: 'Direct modification of governance state is not permitted. Use /world commands to manage governance.',
+          ruleId: 'system:governance-source-protection',
+          guard: null,
+          evidence: `target: ${targetPath}`,
+        };
+      }
+
+      // PAUSE: Modification of governance source files (.md)
+      if (pathLower.endsWith('.md')) {
+        return {
+          status: 'PAUSE',
+          reason: 'Governance source modification detected. Changes to .md files alter your World File on next bootstrap. If you did not request this edit, DENY it.',
+          ruleId: 'system:governance-source-protection',
+          guard: 'governance-source-write',
+          evidence: `target: ${targetPath}`,
+        };
+      }
+    }
+
+    // ── Shell commands ──────────────────────────────────────
+    const isShell = toolLower === 'shell' || toolLower === 'bash';
+    if (isShell) {
+      const command = (event.scope || (event.args?.command as string) || '').toLowerCase();
+
+      // BLOCK: shell commands that target governance state directory
+      if (command.includes('.neuroverseos')) {
+        return {
+          status: 'BLOCK',
+          reason: 'Shell command targets governance state directory. Use /world commands to manage governance.',
+          ruleId: 'system:governance-source-protection',
+          guard: null,
+          evidence: `command references .neuroverseos/`,
+        };
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Run all integrity checks before the governance pipeline.
    * Returns accumulated alerts. Critical alerts override the verdict.
    */
@@ -397,6 +462,14 @@ export class GovernanceEngine {
    * Now includes runtime integrity checks (spec §8).
    */
   evaluate(event: ToolCallEvent): GovernanceVerdict {
+    // Step 0: System-level governance source protection (hardcoded, cannot be removed)
+    const sourceProtection = this.checkGovernanceSourceProtection(event);
+    if (sourceProtection) {
+      // Still surface any integrity alerts alongside the protection verdict
+      const { alerts } = this.checkIntegrity();
+      return alerts.length > 0 ? { ...sourceProtection, alerts } : sourceProtection;
+    }
+
     // Runtime integrity checks run before governance pipeline
     const { alerts, blocked } = this.checkIntegrity();
 

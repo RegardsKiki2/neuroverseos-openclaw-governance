@@ -23,7 +23,7 @@
  *   /world export       — Export for use in other tools
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'fs';
 import { createInterface } from 'readline';
 import { join, resolve } from 'path';
 import { bootstrapWorldFromMarkdown, checkMdDrift } from './world-bootstrap';
@@ -162,19 +162,18 @@ interface PluginConfig {
 // Shared: Read .md files from workspace
 // ────────────────────────────────────────────────────────────────────────
 
-const MD_CANDIDATES = [
-  'system.md', 'personality.md', 'tools.md',
-  'MEMORY.md', 'memory.md',
-  'constitution.md', 'guardrails.md',
-];
-
 function readMdFiles(dir: string): Record<string, string> {
   const mdFiles: Record<string, string> = {};
-  for (const file of MD_CANDIDATES) {
-    const fullPath = join(dir, file);
-    if (existsSync(fullPath)) {
-      mdFiles[file] = readFileSync(fullPath, 'utf-8');
+  try {
+    const entries = readdirSync(dir);
+    for (const file of entries) {
+      if (file.toLowerCase().endsWith('.md')) {
+        const fullPath = join(dir, file);
+        mdFiles[file] = readFileSync(fullPath, 'utf-8');
+      }
     }
+  } catch {
+    // Directory unreadable — return empty
   }
   return mdFiles;
 }
@@ -463,7 +462,7 @@ export default function register(api: any) {
 
           if (Object.keys(mdFiles).length === 0) {
             logger.info('  No .md files found in workspace.');
-            logger.info('  Expected: system.md, personality.md, tools.md, etc.');
+            logger.info('  Add any .md files to define your governance rules.');
             return;
           }
 
@@ -543,7 +542,7 @@ export default function register(api: any) {
 
         if (Object.keys(mdFiles).length === 0) {
           lines.push('  No .md files found in workspace.');
-          lines.push('  Expected: system.md, personality.md, tools.md, etc.');
+          lines.push('  Add any .md files to define your governance rules.');
           return { text: lines.join('\n') };
         }
 

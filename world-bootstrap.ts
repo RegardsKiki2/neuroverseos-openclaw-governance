@@ -1,10 +1,11 @@
 /**
- * World Bootstrap — Generate structured world.json from OpenClaw .md files
+ * World Bootstrap — Generate structured world.json from workspace .md files
  *
- * Reads system.md, personality.md, tools.md, constitution.md, etc.
- * and produces a world.json matching the governance runtime spec:
+ * Scans all .md files in the workspace dynamically and produces a
+ * world.json matching the governance runtime spec:
  *   kernel + invariants + guards + rules + roles + metadata
  *
+ * No filename assumptions — any .md file contributes to the world.
  * This is deterministic extraction — no AI needed.
  * The output matches the GovernanceWorld type exactly.
  */
@@ -109,13 +110,15 @@ export function bootstrapWorldFromMarkdown(
 // ────────────────────────────────────────────────────────────────────────
 
 function extractName(mdFiles: Record<string, string>): string {
-  const system = mdFiles['system.md'] ?? '';
-  const firstLines = system.split('\n').slice(0, 5);
-  for (const line of firstLines) {
-    const titleMatch = line.match(/^#\s+(.+)/);
-    if (titleMatch) return titleMatch[1].trim();
-    const nameMatch = line.match(/(?:name|title|agent)[:\s]+(.+)/i);
-    if (nameMatch) return nameMatch[1].trim();
+  // Search all files for a title — first H1 heading or name/title declaration wins
+  for (const content of Object.values(mdFiles)) {
+    const firstLines = content.split('\n').slice(0, 10);
+    for (const line of firstLines) {
+      const titleMatch = line.match(/^#\s+(.+)/);
+      if (titleMatch) return titleMatch[1].trim();
+      const nameMatch = line.match(/(?:name|title|agent)[:\s]+(.+)/i);
+      if (nameMatch) return nameMatch[1].trim();
+    }
   }
   return 'OpenClaw Agent';
 }
@@ -397,33 +400,48 @@ export function checkMdDrift(
   workspaceDir: string,
   storedHashes: Record<string, string>,
 ): { changed: string[]; added: string[]; removed: string[] } {
-  const { existsSync, readFileSync } = require('fs');
+  const { readdirSync, readFileSync } = require('fs');
   const { join } = require('path');
-
-  const candidates = [
-    'system.md', 'personality.md', 'tools.md',
-    'MEMORY.md', 'memory.md',
-    'constitution.md', 'guardrails.md',
-  ];
 
   const changed: string[] = [];
   const added: string[] = [];
   const removed: string[] = [];
 
-  // Check each candidate file against stored hashes
-  for (const file of candidates) {
+  // Scan workspace for all .md files
+  let currentFiles: string[] = [];
+  try {
+    currentFiles = (readdirSync(workspaceDir) as string[])
+      .filter((f: string) => f.toLowerCase().endsWith('.md'));
+  } catch {
+    // Workspace unreadable — treat all stored hashes as removed
+    return { changed, added, removed: Object.keys(storedHashes) };
+  }
+
+  const seen = new Set<string>();
+
+  // Check current files against stored hashes
+  for (const file of currentFiles) {
+    seen.add(file);
     const fullPath = join(workspaceDir, file);
-    const exists = existsSync(fullPath);
     const hadHash = file in storedHashes;
 
-    if (exists && hadHash) {
+    try {
       const currentHash = hashContent(readFileSync(fullPath, 'utf-8'));
-      if (currentHash !== storedHashes[file]) {
-        changed.push(file);
+      if (hadHash) {
+        if (currentHash !== storedHashes[file]) {
+          changed.push(file);
+        }
+      } else {
+        added.push(file);
       }
-    } else if (exists && !hadHash) {
-      added.push(file);
-    } else if (!exists && hadHash) {
+    } catch {
+      // File unreadable — skip
+    }
+  }
+
+  // Detect removed files (were hashed before, no longer present)
+  for (const file of Object.keys(storedHashes)) {
+    if (!seen.has(file)) {
       removed.push(file);
     }
   }

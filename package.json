@@ -1,9 +1,9 @@
 {
-  "name": "neuroverseos-governance",
-  "version": "1.3.0",
-  "description": "NeuroVerse governance plugin for OpenClaw — deterministic ALLOW / PAUSE / BLOCK verdicts via structured condition engine",
+  "name": "@neuroverse/governance",
+  "version": "0.1.0",
+  "description": "Deterministic constitutional enforcement layer for agent runtimes.",
   "author": "NeuroVerseOS",
-  "license": "Apache-2.0",
+  "license": "MIT",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "openclaw": {
@@ -20,18 +20,17 @@
     "openclaw": "*"
   },
   "files": [
-    "dist/",
+    "dist",
     "openclaw.plugin.json",
-    "GOVERNANCE-RUNTIME-SPEC.md",
-    "SPEC-world-governance-lifecycle.md",
     "README.md",
     "LICENSE"
   ],
   "keywords": [
-    "openclaw",
+    "ai",
     "governance",
-    "guardrails",
-    "neuroverse",
-    "agent-safety"
+    "agents",
+    "openclaw",
+    "constitutional",
+    "guardrails"
   ]
 }

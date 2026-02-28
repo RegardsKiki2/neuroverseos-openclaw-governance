@@ -183,6 +183,26 @@ function readMdFiles(dir: string): Record<string, string> {
 // Plugin Registration
 // ────────────────────────────────────────────────────────────────────────
 
+/**
+ * Resolve the persistent storage root.
+ * Priority: explicit env var → OpenClaw home → Docker default → local cwd.
+ * Plugin must never assume a specific filesystem layout.
+ */
+function getStorageRoot(): string {
+  if (process.env.OPENCLAW_DATA_DIR) {
+    return process.env.OPENCLAW_DATA_DIR;
+  }
+  if (process.env.OPENCLAW_HOME) {
+    return process.env.OPENCLAW_HOME;
+  }
+  // Docker / container environment — /data is the mounted writable volume
+  if (process.env.DOCKER || process.env.CONTAINER) {
+    return '/data';
+  }
+  // Local dev fallback
+  return process.cwd();
+}
+
 export default function register(api: any) {
   // Config: OpenClaw provides plugin-specific config via api.pluginConfig
   const config: PluginConfig = (api.pluginConfig ?? {}) as PluginConfig;
@@ -192,11 +212,14 @@ export default function register(api: any) {
   const roleMap = new Map<string, string>();
   const environment = config.environment ?? process.env.NODE_ENV;
 
-  // Workspace: api.resolvePath('.') resolves relative to workspace
+  // Workspace content: where .md files live (for bootstrap & drift detection)
   const workspaceDir = api.resolvePath('.');
-  const worldDir = resolve(workspaceDir, '.neuroverse');
+
+  // Storage root: where .neuroverse/ persistent data lives
+  const storageRoot = getStorageRoot();
+  const worldDir = resolve(storageRoot, '.neuroverse');
   const worldPath = config.worldPath
-    ? resolve(workspaceDir, config.worldPath)
+    ? resolve(storageRoot, config.worldPath)
     : join(worldDir, 'world.json');
   const auditPath = join(worldDir, 'audit.jsonl');
   const statePath = join(worldDir, 'state.json');

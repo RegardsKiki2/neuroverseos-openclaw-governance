@@ -1,6 +1,6 @@
 # NeuroVerseOS — Governance Kernel for OpenClaw
 
-![npm version](https://img.shields.io/npm/v/@neuroverseos/governance)
+![npm version](https://img.shields.io/npm/v/@neuroverseos/openclaw-governance)
 
 NeuroVerseOS is a deterministic governance kernel for autonomous agents running in OpenClaw.
 
@@ -11,7 +11,7 @@ No AI calls during enforcement. No network requests. Same world + same event = s
 ## Install
 
 ```bash
-npm install @neuroverseos/governance
+npm install @neuroverseos/openclaw-governance
 ```
 
 ## What NeuroVerseOS Does
@@ -57,19 +57,19 @@ No world change activates silently.
 ## Installation
 
 ```bash
-npm install @neuroverseos/governance
+npm install @neuroverseos/openclaw-governance
 ```
 
 Then in code:
 
 ```js
-const { GovernanceEngine } = require('@neuroverseos/governance');
+const { GovernanceEngine } = require('@neuroverseos/openclaw-governance');
 ```
 
 Or as an OpenClaw plugin:
 
 ```bash
-openclaw plugins install @neuroverseos/governance
+openclaw plugins install @neuroverseos/openclaw-governance
 ```
 
 For local development:

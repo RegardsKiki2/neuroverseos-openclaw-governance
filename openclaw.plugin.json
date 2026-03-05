@@ -1,5 +1,5 @@
 {
-  "id": "neuroverseos-governance",
+  "id": "neuroverseos-openclaw-governance",
   "name": "NeuroVerse Governance",
   "version": "1.3.0",
   "description": "Governance plugin for OpenClaw. Structured condition engine. Deterministic verdicts: ALLOW / PAUSE / BLOCK. Audit log. No AI in enforcement.",
